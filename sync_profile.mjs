@@ -16,10 +16,9 @@ const sourceRoot = path.join(
   "User Data"
 );
 
-const destinationRoot = path.join(
-  process.env.LOCALAPPDATA,
-  "TikTokLiveCollectorChrome"
-);
+const destinationRoot =
+  process.env.COLLECTOR_USER_DATA_DIR?.trim() ||
+  path.join(process.env.LOCALAPPDATA, "TikTokLiveCollectorChrome");
 
 const sourceProfile = path.join(sourceRoot, profileName);
 const destinationProfile = path.join(destinationRoot, profileName);
@@ -72,10 +71,9 @@ if (!fs.existsSync(localStateSource)) {
 
 console.log("Nguồn:", sourceProfile);
 console.log("Đích:", destinationProfile);
-console.log("Đang tạo bản sao Profile 1...");
+console.log(`Đang tạo bản sao ${profileName}...`);
 
 fs.mkdirSync(destinationRoot, { recursive: true });
-
 removeIfExists(destinationProfile);
 
 fs.copyFileSync(
@@ -100,4 +98,4 @@ console.log("ĐỒNG BỘ PROFILE THÀNH CÔNG");
 console.log("Hồ sơ collector:", destinationRoot);
 console.log("");
 console.log("Bây giờ chạy:");
-console.log("  start_live.bat username");
+console.log("  start_visible.bat username");
