@@ -50,9 +50,6 @@ export function isIncompleteGiftIdentity(rawEvent) {
     return true;
   }
 
-  // TikTok thường dựng DOM theo nhiều bước. Ở bước đầu, hàng quà có thể chỉ
-  // chứa "đã gửi Hoa hồng x1" và regex cũ hiểu nhầm "đã" là tên người gửi.
-  // Chờ lần cập nhật sau có nickname/uniqueId đầy đủ rồi mới phát event.
   if (
     /^(?:(?:đã\s+)?gửi|sent)\b/i.test(raw)
   ) {
@@ -96,6 +93,13 @@ export class TikTokEventNormalizer {
     const eventType = cleanText(rawEvent?.type).toLowerCase();
     if (!SUPPORTED_EVENT_SET.has(eventType)) return null;
 
+    if (
+      eventType === "like" &&
+      cleanText(rawEvent?.source) !== "heart-animation"
+    ) {
+      return null;
+    }
+
     if (eventType === "gift" && isIncompleteGiftIdentity(rawEvent)) {
       return null;
     }
@@ -128,8 +132,8 @@ export class TikTokEventNormalizer {
     if (eventType === "like") {
       payload.count = Math.max(1, Math.floor(Number(rawEvent.count) || 1));
       payload.action = cleanText(rawEvent.action) || null;
-      payload.source = cleanText(rawEvent.source) || "unknown";
-      payload.anonymous = Boolean(rawEvent.anonymous);
+      payload.source = "heart-animation";
+      payload.anonymous = true;
       payload.suspected = true;
     }
 
