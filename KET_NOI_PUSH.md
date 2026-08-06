@@ -2,7 +2,7 @@
 
 Tài liệu này hướng dẫn game hoặc ứng dụng nhận event TikTok LIVE ngay khi middleware bắt được.
 
-Game **không cần polling**, không cần gọi `/api/recent` theo vòng lặp và không cần hỏi middleware xem có event mới hay chưa.
+Game **không polling**, không cần gọi `/api/recent` liên tục.
 
 ## 1. Luồng hoạt động
 
@@ -26,43 +26,19 @@ Webhook nội bộ mặc định:
 http://127.0.0.1:9000/tiktok-event
 ```
 
-Mỗi `join`, `comment`, `follow`, `gift` hoặc `like` mới được middleware tự gửi bằng một HTTP POST riêng.
+Mỗi `join`, `comment`, `follow`, `gift` hoặc `like` mới được middleware gửi bằng một HTTP POST riêng.
 
-## 2. Cách chạy nhanh nhất
+## 2. Trình tự mở đúng — hai cửa sổ CMD
 
-Sau khi cài đặt và đồng bộ Chrome Profile, chỉ cần chạy:
+### CMD thứ nhất: mở server game
 
-```cmd
-start_middleware_to_game.bat ten_tiktok
-```
-
-Ví dụ:
-
-```cmd
-start_middleware_to_game.bat ngocky.ne
-```
-
-File BAT sẽ tự làm theo thứ tự:
-
-1. kiểm tra có game server hợp lệ đang chạy trên port `9000` hay chưa;
-2. nếu đã chạy thì dùng luôn server đó;
-3. nếu chưa chạy thì tự mở một cửa sổ mới chạy `examples\game_event_server.py`;
-4. gọi `GET /health` để xác nhận đúng server, đúng version, đúng `instanceId` và đúng `eventPath`;
-5. chỉ khi xác nhận thành công mới mở TikTok LIVE;
-6. tự đặt `WEBHOOK_URLS=http://127.0.0.1:9000/tiktok-event`;
-7. middleware tự POST từng event sang server game.
-
-Không cần mở `start_visible.bat` riêng khi đã dùng file BAT này.
-
-## 3. Cách chạy thủ công bằng hai CMD
-
-### CMD thứ nhất — mở server game
+Mở CMD tại thư mục repo:
 
 ```cmd
 python examples\game_event_server.py
 ```
 
-Bản đúng phải hiện ít nhất:
+Bản đúng phải hiện:
 
 ```text
 TIKTOK GAME EVENT SERVER
@@ -75,17 +51,33 @@ Health     : http://127.0.0.1:9000/health
 
 Giữ nguyên cửa sổ này.
 
-### CMD thứ hai — chạy middleware
+### CMD thứ hai: mở middleware
+
+Mở CMD khác tại cùng thư mục repo:
 
 ```cmd
 start_middleware_to_game.bat ten_tiktok
 ```
 
-BAT sẽ phát hiện server đang chạy và không mở thêm server thứ hai.
+Ví dụ:
 
-## 4. Dấu hiệu hai bên đã thông nhau
+```cmd
+start_middleware_to_game.bat ngocky.ne
+```
 
-Cửa sổ server game phải hiện:
+File BAT sẽ:
+
+1. gọi `GET /health` để kiểm tra server game;
+2. xác nhận đúng `service`, version, `instanceId`, PID và `eventPath`;
+3. nếu server chưa chạy thì báo lệnh cần chạy ở CMD thứ nhất rồi dừng;
+4. nếu kết nối đúng thì đặt `WEBHOOK_URLS`;
+5. mở TikTok LIVE và tự POST từng event sang server game.
+
+File BAT **không tự mở thêm cửa sổ CMD**.
+
+## 3. Dấu hiệu hai bên đã thông nhau
+
+Cửa sổ server game:
 
 ```text
 [HANDSHAKE] GET /health từ 127.0.0.1
@@ -99,7 +91,7 @@ Cửa sổ server game phải hiện:
 ============================================================
 ```
 
-Cửa sổ middleware phải hiện:
+Cửa sổ middleware:
 
 ```text
 [HANDSHAKE] KẾT NỐI OK: http://127.0.0.1:9000/tiktok-event
@@ -111,54 +103,54 @@ Cửa sổ middleware phải hiện:
 [KET NOI OK] Game server va middleware da thong nhau.
 ```
 
-Hai cửa sổ phải hiện cùng `instanceId` và PID của server.
+Hai cửa sổ phải hiện cùng `instanceId` và PID.
 
-## 5. Khi nhận event thật
+## 4. Khi nhận event thật
 
-Mỗi request được in ngay khi server nhận được:
+Ví dụ LIKE:
 
 ```text
 [17:08:16] [WEBHOOK NHẬN #1] instance=abc123def456 | từ 127.0.0.1 | type=like | eventId=...
 [LIKE] x1 | source=heart-animation
 ```
 
-Ví dụ khác:
+Ví dụ comment:
 
 ```text
 [WEBHOOK NHẬN #2] ... | type=comment | eventId=...
 [COMMENT] Nguyễn Văn A: đánh
+```
 
+Ví dụ gift:
+
+```text
 [WEBHOOK NHẬN #3] ... | type=gift | eventId=...
 [GIFT] Đ a N G gửi Hoa Hồng x1 | key=hoa_hong
 ```
 
-Phía middleware cũng in một lần khi gửi thành công tới URL:
+Phía middleware in một lần khi gửi thành công tới URL:
 
 ```text
 [WEBHOOK] KẾT NỐI OK - đã gửi thành công tới http://127.0.0.1:9000/tiktok-event
 ```
 
-## 6. Mã đầy đủ của server game
+## 5. Server game mẫu
 
-Mã mẫu đầy đủ và luôn được cập nhật tại:
+File chuẩn:
 
 ```text
 examples/game_event_server.py
 ```
 
-Đây là file chuẩn để chạy và tích hợp. Không dùng bản mã sao chép từ tài liệu cũ.
-
-Server hiện có:
+Server có:
 
 - `POST /tiktok-event` nhận event tự động;
 - `GET /health` kiểm tra trạng thái;
 - version `1.3`;
-- `instanceId` riêng cho mỗi process;
-- PID của process;
-- khóa độc quyền port trên Windows bằng `SO_EXCLUSIVEADDRUSE`;
-- chống hai process cùng giữ port `9000`;
-- log mọi handshake và webhook nhận được;
-- `queue.Queue` tách HTTP receiver khỏi logic game;
+- `instanceId` và PID;
+- khóa độc quyền port trên Windows;
+- log mọi handshake và webhook;
+- `queue.Queue` tách phần HTTP khỏi logic game;
 - worker tự gọi hàm xử lý;
 - chống event trùng bằng `eventId`;
 - chỉ dùng thư viện chuẩn Python.
@@ -204,9 +196,9 @@ def on_gift(event: dict) -> None:
     )
 ```
 
-HTTP server tự nhận và gọi các hàm này. Game không cần chủ động gọi middleware.
+Game không cần gọi middleware; server HTTP tự nhận event và worker tự gọi các hàm trên.
 
-## 7. Mã handshake
+## 6. Handshake
 
 File:
 
@@ -214,13 +206,13 @@ File:
 scripts/send_webhook_handshake.py
 ```
 
-Handshake không gửi event giả. Nó gọi:
+Handshake gọi:
 
 ```text
 GET http://127.0.0.1:9000/health
 ```
 
-Sau đó kiểm tra JSON phản hồi phải có:
+Phản hồi phải có:
 
 ```json
 {
@@ -235,11 +227,9 @@ Sau đó kiểm tra JSON phản hồi phải có:
 
 Nếu server quá cũ, sai service hoặc sai đường dẫn, middleware không khởi động.
 
-## 8. Schema LIKE hiện tại
+## 7. Schema LIKE
 
 LIKE là hoạt động chung, không xác định người dùng.
-
-Mỗi phần tử tim DOM bắt được tạo một event riêng:
 
 ```json
 {
@@ -260,8 +250,6 @@ Mỗi phần tử tim DOM bắt được tạo một event riêng:
 }
 ```
 
-Luồng:
-
 ```text
 Tim 1 → POST 1 → count=1
 Tim 2 → POST 2 → count=1
@@ -270,7 +258,7 @@ Tim 3 → POST 3 → count=1
 
 Không gom nhiều tim thành một event.
 
-## 9. Schema các event khác
+## 8. Schema event khác
 
 ### Comment
 
@@ -306,52 +294,21 @@ Không gom nhiều tim thành một event.
 }
 ```
 
-### Follow và Join
-
-```json
-{
-  "eventType": "follow",
-  "user": {
-    "id": "username",
-    "displayName": "Tên người dùng"
-  },
-  "payload": {
-    "action": "đã theo dõi"
-  }
-}
-```
-
 Middleware không phát `leave`. Game tự quản lý timeout hoặc trạng thái rời phòng.
 
-## 10. Chống event trùng
+## 9. Chống event trùng
 
 Webhook có retry khi timeout. Server lưu các `eventId` gần nhất.
 
-Nếu nhận lại cùng `eventId`, server trả `200` nhưng không đưa event vào queue lần thứ hai:
+Nếu nhận lại cùng `eventId`, server trả `200` nhưng không đưa vào queue lần thứ hai:
 
 ```text
 [WEBHOOK TRÙNG] eventId=...
 ```
 
-## 11. Lỗi process cũ giữ port 9000
+## 10. Lỗi port 9000 đang bị giữ
 
-Bản server cũ từng cho phép tái sử dụng địa chỉ. Trên Windows có thể xảy ra trường hợp nhiều process cùng liên quan đến port `9000`, làm middleware gửi event vào process khác với cửa sổ đang nhìn.
-
-Bản `1.3` đã sửa bằng:
-
-```python
-allow_reuse_address = False
-```
-
-và:
-
-```python
-socket.SO_EXCLUSIVEADDRUSE
-```
-
-Nếu port đã bị giữ, server mới phải báo lỗi ngay thay vì âm thầm chạy.
-
-Kiểm tra PID giữ port:
+Kiểm tra:
 
 ```cmd
 netstat -ano | findstr LISTENING | findstr :9000
@@ -363,13 +320,14 @@ Dừng PID cũ:
 taskkill /PID 1234 /F
 ```
 
-Sau đó chạy lại:
+Sau đó mở lại theo đúng thứ tự:
 
-```cmd
-start_middleware_to_game.bat ten_tiktok
+```text
+CMD 1: python examples\game_event_server.py
+CMD 2: start_middleware_to_game.bat ten_tiktok
 ```
 
-## 12. Kiểm tra phiên bản local
+## 11. Kiểm tra phiên bản local
 
 ```cmd
 findstr /C:"SERVER_VERSION = \"1.3\"" examples\game_event_server.py
@@ -385,18 +343,18 @@ Cập nhật:
 git pull origin main
 ```
 
-Sau khi pull, phải đóng các cửa sổ Python/Node cũ rồi chạy lại, vì process đang chạy không tự nạp code mới.
+Sau khi pull, phải đóng các process Python/Node cũ rồi chạy lại.
 
-## 13. Gửi tới server ở máy khác trong LAN
+## 12. Server ở máy khác trong LAN
 
-Trên máy game:
+Máy game:
 
 ```cmd
 set "GAME_EVENT_HOST=0.0.0.0"
 python examples\game_event_server.py
 ```
 
-Trên máy middleware, đặt IP máy game:
+Máy middleware:
 
 ```cmd
 set "WEBHOOK_URLS=http://192.168.1.60:9000/tiktok-event"
@@ -411,7 +369,7 @@ netsh advfirewall firewall add rule name="TikTok Game Event 9000" dir=in action=
 
 Không cần mở port router nếu chỉ dùng trong LAN.
 
-## 14. Webhook khác SSE thế nào?
+## 13. Webhook và SSE
 
 Webhook:
 
@@ -426,14 +384,13 @@ Game mở một kết nối GET /api/events một lần
 Middleware đẩy event xuống kết nối đó
 ```
 
-Với yêu cầu server game nhận tự động trong hệ thống nội bộ, webhook là lựa chọn chính.
+Với server game nội bộ, webhook là cách chính.
 
-## 15. Tóm tắt
+## 14. Tóm tắt
 
-Cách ngắn nhất:
-
-```cmd
-start_middleware_to_game.bat ten_tiktok
+```text
+CMD 1: python examples\game_event_server.py
+CMD 2: start_middleware_to_game.bat ten_tiktok
 ```
 
 Kết quả đúng:
@@ -443,7 +400,7 @@ Game server version 1.3
 Có instanceId và PID
 Handshake GET /health thành công
 Middleware mở TikTok LIVE
-Mỗi event được tự POST tới /tiktok-event
+Mỗi event tự POST tới /tiktok-event
 Server in [WEBHOOK NHẬN]
 Worker tự gọi logic game
 ```
