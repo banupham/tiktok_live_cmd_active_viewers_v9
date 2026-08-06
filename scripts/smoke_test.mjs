@@ -42,6 +42,31 @@ const gift = normalizer.normalize({
 assert.equal(gift.payload.giftKey, "hoa_hong");
 assert.equal(gift.payload.totalCount, 3);
 assert.equal(gift.user.displayName, "Đ a N G");
+
+const ignoredSystemLike = normalizer.normalize({
+  type: "like",
+  sender: "Người dùng",
+  action: "đã thích phiên LIVE",
+});
+assert.equal(ignoredSystemLike, null);
+
+const anonymousLike = normalizer.normalize({
+  type: "like",
+  sender: null,
+  uniqueId: null,
+  count: 1,
+  action: "heart-animation",
+  source: "heart-animation",
+  anonymous: true,
+});
+
+assert.equal(anonymousLike.eventType, "like");
+assert.equal(anonymousLike.user.id, "anonymous:like");
+assert.equal(anonymousLike.user.identityType, "anonymous");
+assert.equal(anonymousLike.payload.count, 1);
+assert.equal(anonymousLike.payload.source, "heart-animation");
+assert.equal(anonymousLike.payload.anonymous, true);
+
 assert.equal(normalizer.normalize({ type: "leave", sender: "Dương" }), null);
 
 const eventBus = new EventBus({ maxRecent: 5 });
@@ -53,17 +78,19 @@ const gateway = new HttpEventGateway({
 
 await gateway.start();
 eventBus.publish(comment);
+eventBus.publish(anonymousLike);
 
 const health = await fetch("http://127.0.0.1:18787/api/health").then(
   response => response.json()
 );
 assert.equal(health.ok, true);
-assert.equal(health.eventCount, 1);
+assert.equal(health.eventCount, 2);
 
 const recent = await fetch(
   "http://127.0.0.1:18787/api/recent?limit=1"
 ).then(response => response.json());
-assert.equal(recent.events[0].eventId, comment.eventId);
+assert.equal(recent.events[0].eventId, anonymousLike.eventId);
+assert.equal(recent.events[0].payload.count, 1);
 
 const schema = await fetch("http://127.0.0.1:18787/api/schema").then(
   response => response.json()
