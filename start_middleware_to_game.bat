@@ -14,7 +14,6 @@ if "%~1"=="" (
 set "GAME_EVENT_HOST=127.0.0.1"
 set "GAME_EVENT_PORT=9000"
 set "GAME_EVENT_PATH=/tiktok-event"
-set "GAME_EVENT_INSTANCE_TOKEN=%RANDOM%%RANDOM%%RANDOM%"
 set "WEBHOOK_URLS=http://127.0.0.1:%GAME_EVENT_PORT%%GAME_EVENT_PATH%"
 set "WEBHOOK_TIMEOUT_MS=3000"
 set "WEBHOOK_RETRY_COUNT=1"
@@ -22,10 +21,15 @@ set "WEBHOOK_RETRY_COUNT=1"
 echo ============================================================
 echo TIKTOK LIVE EVENT MIDDLEWARE + GAME SERVER
 echo Webhook: %WEBHOOK_URLS%
-echo Session: %GAME_EVENT_INSTANCE_TOKEN%
 echo ============================================================
 echo.
-echo Dang tu mo game_event_server.py trong cua so moi...
+echo Dang kiem tra xem game server da chay chua...
+python "%~dp0scripts\send_webhook_handshake.py"
+
+if not errorlevel 1 goto SERVER_OK
+
+echo.
+echo Chua co game server hop le. Dang tu mo cua so server...
 start "TikTok Game Event Server" cmd /k "cd /d ""%~dp0"" ^&^& python examples\game_event_server.py"
 
 echo Dang cho server khoi dong...
@@ -35,7 +39,7 @@ python "%~dp0scripts\send_webhook_handshake.py"
 
 if errorlevel 1 (
   echo.
-  echo [LOI] Khong ket noi duoc dung game server vua mo.
+  echo [LOI] Khong ket noi duoc dung game server.
   echo Co the process cu dang giu port %GAME_EVENT_PORT%.
   echo.
   echo Process dang LISTEN tren port %GAME_EVENT_PORT%:
@@ -49,8 +53,9 @@ if errorlevel 1 (
   exit /b 2
 )
 
+:SERVER_OK
 echo.
-echo [KET NOI OK] Dung game server va middleware da thong nhau.
+echo [KET NOI OK] Game server va middleware da thong nhau.
 echo Dang mo TikTok LIVE...
 echo.
 
