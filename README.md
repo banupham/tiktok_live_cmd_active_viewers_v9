@@ -30,17 +30,24 @@ LIKE không gắn với người dùng cụ thể.
 
 Cách nhanh nhất trên cùng một máy:
 
-### CMD thứ nhất
-
-```cmd
-python examples\game_event_server.py
-```
-
-### CMD thứ hai
-
 ```cmd
 start_middleware_to_game.bat ten_tiktok
 ```
+
+Ví dụ:
+
+```cmd
+start_middleware_to_game.bat ngocky.ne
+```
+
+File BAT sẽ:
+
+1. kiểm tra server game hợp lệ đang chạy trên port `9000`;
+2. nếu đã chạy thì dùng luôn;
+3. nếu chưa chạy thì tự mở `examples\game_event_server.py` trong cửa sổ mới;
+4. xác nhận đúng server bằng `GET /health`, version, `instanceId`, PID và `eventPath`;
+5. chỉ khi kết nối thành công mới mở TikTok LIVE;
+6. tự POST mọi event tới `http://127.0.0.1:9000/tiktok-event`.
 
 Luồng hoạt động:
 
@@ -64,7 +71,9 @@ Server mẫu đầy đủ:
 examples/game_event_server.py
 ```
 
-Hướng dẫn đầy đủ, mã nguồn, cấu hình LAN và schema event:
+Server hiện dùng version `1.3`, có `instanceId`, PID và khóa độc quyền port trên Windows để tránh gửi nhầm event sang process cũ.
+
+Hướng dẫn đầy đủ, cấu hình LAN, chẩn đoán port và schema event:
 
 ```text
 KET_NOI_PUSH.md
@@ -143,7 +152,7 @@ examples/browser_sse_client.html
 ## Tài liệu
 
 - [HUONG_DAN_TICH_HOP.md](HUONG_DAN_TICH_HOP.md): cài đặt, schema và API tổng thể.
-- [KET_NOI_PUSH.md](KET_NOI_PUSH.md): webhook nội bộ, `game_event_server.py`, queue, SSE và cách nhận event tự động.
+- [KET_NOI_PUSH.md](KET_NOI_PUSH.md): webhook nội bộ, game server `1.3`, handshake, queue, SSE và cách nhận event tự động.
 
 ## Cấu trúc
 
@@ -171,6 +180,7 @@ examples/browser_sse_client.html
 │   ├── node_sse_client.mjs
 │   └── browser_sse_client.html
 ├── scripts/
+│   ├── send_webhook_handshake.py
 │   ├── check.mjs
 │   └── smoke_test.mjs
 ├── HUONG_DAN_TICH_HOP.md
