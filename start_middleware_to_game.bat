@@ -11,34 +11,46 @@ if "%~1"=="" (
   exit /b 1
 )
 
-rem Server game noi bo mac dinh tren cung may.
-set "WEBHOOK_URLS=http://127.0.0.1:9000/tiktok-event"
+set "GAME_EVENT_HOST=127.0.0.1"
+set "GAME_EVENT_PORT=9000"
+set "GAME_EVENT_PATH=/tiktok-event"
+set "GAME_EVENT_INSTANCE_TOKEN=%RANDOM%%RANDOM%%RANDOM%"
+set "WEBHOOK_URLS=http://127.0.0.1:%GAME_EVENT_PORT%%GAME_EVENT_PATH%"
 set "WEBHOOK_TIMEOUT_MS=3000"
 set "WEBHOOK_RETRY_COUNT=1"
 
-echo Middleware se tu dong POST event toi:
-echo   %WEBHOOK_URLS%
+echo ============================================================
+echo TIKTOK LIVE EVENT MIDDLEWARE + GAME SERVER
+echo Webhook: %WEBHOOK_URLS%
+echo Session: %GAME_EVENT_INSTANCE_TOKEN%
+echo ============================================================
 echo.
-echo Dang kiem tra dung process server game...
+echo Dang tu mo game_event_server.py trong cua so moi...
+start "TikTok Game Event Server" cmd /k "cd /d ""%~dp0"" ^&^& python examples\game_event_server.py"
+
+echo Dang cho server khoi dong...
+timeout /t 2 /nobreak >nul
+
 python "%~dp0scripts\send_webhook_handshake.py"
 
 if errorlevel 1 (
   echo.
-  echo [LOI] Chua ket noi dung voi server game.
-  echo Co the mot process cu dang giu port 9000.
+  echo [LOI] Khong ket noi duoc dung game server vua mo.
+  echo Co the process cu dang giu port %GAME_EVENT_PORT%.
   echo.
-  echo Process dang LISTEN tren port 9000:
-  netstat -ano | findstr LISTENING | findstr :9000
+  echo Process dang LISTEN tren port %GAME_EVENT_PORT%:
+  netstat -ano | findstr LISTENING | findstr :%GAME_EVENT_PORT%
   echo.
-  echo Hay dong tat ca cua so game_event_server.py cu, sau do chay lai:
-  echo   python examples\game_event_server.py
+  echo Dong process cu bang:
+  echo   taskkill /PID ^<PID^> /F
+  echo Sau do chay lai file BAT nay.
   echo.
   echo Middleware KHONG duoc khoi dong de tranh gui nham process.
   exit /b 2
 )
 
 echo.
-echo [KET NOI OK] Middleware va server game da thong nhau.
+echo [KET NOI OK] Dung game server va middleware da thong nhau.
 echo Dang mo TikTok LIVE...
 echo.
 
