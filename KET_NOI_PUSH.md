@@ -1,10 +1,10 @@
 # KẾT NỐI TỰ ĐỘNG VỚI TIKTOK LIVE EVENT MIDDLEWARE
 
-Tài liệu này hướng dẫn game hoặc ứng dụng nhận event TikTok LIVE **ngay khi middleware bắt được**.
+Tài liệu này hướng dẫn game hoặc ứng dụng nhận event TikTok LIVE ngay khi middleware bắt được.
 
-Game không phải gọi `/api/recent` theo vòng lặp và không phải hỏi middleware xem có event mới hay chưa.
+Game **không cần polling**, không cần gọi `/api/recent` theo vòng lặp và không cần hỏi middleware xem có event mới hay chưa.
 
-## 1. Luồng nhận tự động
+## 1. Luồng hoạt động
 
 ```text
 TikTok LIVE
@@ -13,23 +13,48 @@ DOM collector bắt event
     ↓
 Middleware chuẩn hóa JSON
     ↓ HTTP POST tự động
-Server game / ứng dụng
+POST /tiktok-event của server game
     ↓
 Đưa event vào queue
     ↓
-Logic game xử lý
+Logic game tự xử lý
 ```
 
-Cơ chế phù hợp nhất trong hệ thống nội bộ là **Webhook**:
+Webhook nội bộ mặc định:
 
 ```text
-POST http://127.0.0.1:9000/tiktok-event
-Content-Type: application/json
+http://127.0.0.1:9000/tiktok-event
 ```
 
-Mỗi khi có `join`, `comment`, `follow`, `gift` hoặc `like`, middleware tự gửi một request POST mới tới server game.
+Mỗi `join`, `comment`, `follow`, `gift` hoặc `like` mới được middleware tự gửi bằng một HTTP POST riêng.
 
-## 2. Chạy nhanh trên cùng một máy
+## 2. Cách chạy nhanh nhất
+
+Sau khi cài đặt và đồng bộ Chrome Profile, chỉ cần chạy:
+
+```cmd
+start_middleware_to_game.bat ten_tiktok
+```
+
+Ví dụ:
+
+```cmd
+start_middleware_to_game.bat ngocky.ne
+```
+
+File BAT sẽ tự làm theo thứ tự:
+
+1. kiểm tra có game server hợp lệ đang chạy trên port `9000` hay chưa;
+2. nếu đã chạy thì dùng luôn server đó;
+3. nếu chưa chạy thì tự mở một cửa sổ mới chạy `examples\game_event_server.py`;
+4. gọi `GET /health` để xác nhận đúng server, đúng version, đúng `instanceId` và đúng `eventPath`;
+5. chỉ khi xác nhận thành công mới mở TikTok LIVE;
+6. tự đặt `WEBHOOK_URLS=http://127.0.0.1:9000/tiktok-event`;
+7. middleware tự POST từng event sang server game.
+
+Không cần mở `start_visible.bat` riêng khi đã dùng file BAT này.
+
+## 3. Cách chạy thủ công bằng hai CMD
 
 ### CMD thứ nhất — mở server game
 
@@ -37,403 +62,108 @@ Mỗi khi có `join`, `comment`, `follow`, `gift` hoặc `like`, middleware tự
 python examples\game_event_server.py
 ```
 
-Kết quả:
+Bản đúng phải hiện ít nhất:
 
 ```text
 TIKTOK GAME EVENT SERVER
+Phiên bản  : 1.3
+Instance   : <mã 12 ký tự>
+PID        : <PID>
 Nhận event : http://127.0.0.1:9000/tiktok-event
 Health     : http://127.0.0.1:9000/health
-
-Server đang đứng chờ. Middleware sẽ tự POST event tới đây.
-Game không cần gọi /api/recent hoặc polling middleware.
 ```
 
-### CMD thứ hai — chạy middleware và trỏ tới server game
+Giữ nguyên cửa sổ này.
 
-Cách nhanh nhất:
+### CMD thứ hai — chạy middleware
 
 ```cmd
 start_middleware_to_game.bat ten_tiktok
 ```
 
-File BAT đã cấu hình sẵn:
+BAT sẽ phát hiện server đang chạy và không mở thêm server thứ hai.
 
-```cmd
-set "WEBHOOK_URLS=http://127.0.0.1:9000/tiktok-event"
-set "WEBHOOK_TIMEOUT_MS=3000"
-set "WEBHOOK_RETRY_COUNT=1"
-```
+## 4. Dấu hiệu hai bên đã thông nhau
 
-Hoặc chạy thủ công:
-
-```cmd
-set "WEBHOOK_URLS=http://127.0.0.1:9000/tiktok-event"
-start_visible.bat ten_tiktok
-```
-
-Từ thời điểm đó, server game chỉ đứng chờ. Middleware chủ động bắn event sang.
-
-## 3. Kết quả nhận tự động
-
-Khi có comment:
+Cửa sổ server game phải hiện:
 
 ```text
+[HANDSHAKE] GET /health từ 127.0.0.1
+
+============================================================
+[KẾT NỐI OK] TIKTOK LIVE EVENT MIDDLEWARE → SERVER GAME
+[SERVER INSTANCE] <instanceId>
+[SERVER PID] <PID>
+[KIỂM TRA] GET /health thành công
+[WEBHOOK] http://127.0.0.1:9000/tiktok-event
+============================================================
+```
+
+Cửa sổ middleware phải hiện:
+
+```text
+[HANDSHAKE] KẾT NỐI OK: http://127.0.0.1:9000/tiktok-event
+[HANDSHAKE] Server version : 1.3
+[HANDSHAKE] Server instance: <instanceId>
+[HANDSHAKE] Server PID     : <PID>
+[HANDSHAKE] TẤT CẢ WEBHOOK ĐÃ THÔNG NHAU.
+
+[KET NOI OK] Game server va middleware da thong nhau.
+```
+
+Hai cửa sổ phải hiện cùng `instanceId` và PID của server.
+
+## 5. Khi nhận event thật
+
+Mỗi request được in ngay khi server nhận được:
+
+```text
+[17:08:16] [WEBHOOK NHẬN #1] instance=abc123def456 | từ 127.0.0.1 | type=like | eventId=...
+[LIKE] x1 | source=heart-animation
+```
+
+Ví dụ khác:
+
+```text
+[WEBHOOK NHẬN #2] ... | type=comment | eventId=...
 [COMMENT] Nguyễn Văn A: đánh
+
+[WEBHOOK NHẬN #3] ... | type=gift | eventId=...
+[GIFT] Đ a N G gửi Hoa Hồng x1 | key=hoa_hong
 ```
 
-Khi có quà:
+Phía middleware cũng in một lần khi gửi thành công tới URL:
 
 ```text
-[GIFT] Nguyễn Văn B gửi Hoa Hồng x1 | key=hoa_hong
+[WEBHOOK] KẾT NỐI OK - đã gửi thành công tới http://127.0.0.1:9000/tiktok-event
 ```
 
-Khi có tim LIKE:
+## 6. Mã đầy đủ của server game
+
+Mã mẫu đầy đủ và luôn được cập nhật tại:
 
 ```text
-[LIKE] x1 | source=heart-animation
-[LIKE] x1 | source=heart-animation
-[LIKE] x1 | source=heart-animation
+examples/game_event_server.py
 ```
 
-LIKE hiện hoạt động theo nguyên tắc:
-
-```text
-Một phần tử tim DOM bắt được
-        ↓
-Một event LIKE
-        ↓
-payload.count = 1
-        ↓
-Một webhook POST riêng
-```
-
-Không gom nhiều tim thành một event và không xác định người đã like.
-
-## 4. File mẫu `examples/game_event_server.py`
-
-File này chỉ dùng thư viện chuẩn của Python, không cần cài Flask hoặc FastAPI.
-
-Nó có các chức năng:
-
-- mở `POST /tiktok-event`;
-- nhận JSON do middleware tự gửi;
-- chống xử lý trùng bằng `eventId`;
-- đưa event vào `queue.Queue`;
-- trả HTTP ngay để middleware không phải chờ logic game chạy xong;
-- worker tự lấy event trong queue và gọi logic game;
-- mở `GET /health` để kiểm tra server;
-- mặc định chỉ lắng nghe `127.0.0.1`.
-
-Toàn bộ mã:
-
-```python
-from __future__ import annotations
-
-import json
-import os
-import queue
-import threading
-from collections import deque
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
-
-# Mặc định chỉ nhận kết nối nội bộ trên chính máy này.
-# Muốn nhận từ máy khác trong LAN: set GAME_EVENT_HOST=0.0.0.0
-HOST = os.environ.get("GAME_EVENT_HOST", "127.0.0.1").strip()
-PORT = int(os.environ.get("GAME_EVENT_PORT", "9000"))
-EVENT_PATH = os.environ.get("GAME_EVENT_PATH", "/tiktok-event").strip()
-MAX_BODY_BYTES = int(os.environ.get("GAME_EVENT_MAX_BODY", str(2 * 1024 * 1024)))
-MAX_QUEUE_SIZE = int(os.environ.get("GAME_EVENT_QUEUE_SIZE", "5000"))
-MAX_REMEMBERED_EVENT_IDS = int(os.environ.get("GAME_EVENT_ID_CACHE", "10000"))
-
-EVENT_QUEUE: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=MAX_QUEUE_SIZE)
-
-_event_ids: set[str] = set()
-_event_id_order: deque[str] = deque()
-_event_id_lock = threading.Lock()
-
-
-def register_event_id(event_id: str) -> bool:
-    """Trả về False nếu eventId đã được xử lý trước đó."""
-    if not event_id:
-        return True
-
-    with _event_id_lock:
-        if event_id in _event_ids:
-            return False
-
-        _event_ids.add(event_id)
-        _event_id_order.append(event_id)
-
-        while len(_event_id_order) > MAX_REMEMBERED_EVENT_IDS:
-            expired = _event_id_order.popleft()
-            _event_ids.discard(expired)
-
-    return True
-
-
-def unregister_event_id(event_id: str) -> None:
-    """Hủy đăng ký nếu chưa thể đưa event vào queue."""
-    if not event_id:
-        return
-
-    with _event_id_lock:
-        _event_ids.discard(event_id)
-        try:
-            _event_id_order.remove(event_id)
-        except ValueError:
-            pass
-
-
-def on_join(event: dict[str, Any]) -> None:
-    user = event.get("user") or {}
-    print(f"[JOIN] {user.get('displayName')}")
-
-    # Ví dụ tích hợp game:
-    # game.ensure_player(user)
-
-
-def on_comment(event: dict[str, Any]) -> None:
-    user = event.get("user") or {}
-    payload = event.get("payload") or {}
-
-    print(
-        f"[COMMENT] {user.get('displayName')}: "
-        f"{payload.get('text')}"
-    )
-
-    # Ví dụ tích hợp game:
-    # game.execute_command(
-    #     user_id=user.get("id"),
-    #     command=payload.get("normalizedText"),
-    # )
-
-
-def on_follow(event: dict[str, Any]) -> None:
-    user = event.get("user") or {}
-    print(f"[FOLLOW] {user.get('displayName')}")
-
-    # Ví dụ tích hợp game:
-    # game.reward_follow(user.get("id"))
-
-
-def on_like(event: dict[str, Any]) -> None:
-    payload = event.get("payload") or {}
-    count = max(1, int(payload.get("count") or 1))
-
-    # LIKE hiện là hoạt động tim ẩn danh.
-    # Mỗi tim DOM bắt được tạo một event riêng với count=1.
-    print(f"[LIKE] x{count} | source={payload.get('source')}")
-
-    # Ví dụ tích hợp game:
-    # game.add_global_energy(count)
-
-
-def on_gift(event: dict[str, Any]) -> None:
-    user = event.get("user") or {}
-    payload = event.get("payload") or {}
-
-    print(
-        f"[GIFT] {user.get('displayName')} gửi "
-        f"{payload.get('giftName')} x{payload.get('count', 1)} "
-        f"| key={payload.get('giftKey')}"
-    )
-
-    # Ví dụ tích hợp game:
-    # game.apply_gift(
-    #     user_id=user.get("id"),
-    #     gift_key=payload.get("giftKey"),
-    #     count=payload.get("count", 1),
-    # )
-
-
-def handle_tiktok_event(event: dict[str, Any]) -> None:
-    """
-    Đây là hàm trung tâm cần thay đổi khi tích hợp vào game thật.
-
-    HTTP server chỉ nhận JSON và đưa vào EVENT_QUEUE. Worker gọi hàm này
-    tự động ngay khi có event mới; game không cần gọi middleware để hỏi.
-    """
-    event_type = str(event.get("eventType") or "").lower()
-
-    handlers = {
-        "join": on_join,
-        "comment": on_comment,
-        "follow": on_follow,
-        "like": on_like,
-        "gift": on_gift,
-    }
-
-    handler = handlers.get(event_type)
-    if handler is None:
-        print(f"[BỎ QUA] eventType không hỗ trợ: {event_type!r}")
-        return
-
-    handler(event)
-
-
-def event_worker() -> None:
-    """Tự lấy event trong queue và gọi logic game."""
-    while True:
-        event = EVENT_QUEUE.get()
-
-        try:
-            handle_tiktok_event(event)
-        except Exception as error:
-            print(f"[GAME ERROR] {error}")
-        finally:
-            EVENT_QUEUE.task_done()
-
-
-class GameEventHandler(BaseHTTPRequestHandler):
-    server_version = "TikTokGameEventServer/1.0"
-
-    def log_message(self, format: str, *args: object) -> None:
-        return
-
-    def send_json(self, status: int, payload: dict[str, Any]) -> None:
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_GET(self) -> None:
-        if self.path == "/health":
-            self.send_json(
-                200,
-                {
-                    "ok": True,
-                    "service": "game-event-server",
-                    "eventPath": EVENT_PATH,
-                    "queueSize": EVENT_QUEUE.qsize(),
-                    "queueCapacity": MAX_QUEUE_SIZE,
-                },
-            )
-            return
-
-        self.send_json(404, {"ok": False, "error": "Not found"})
-
-    def do_POST(self) -> None:
-        if self.path != EVENT_PATH:
-            self.send_json(404, {"ok": False, "error": "Not found"})
-            return
-
-        try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            self.send_json(400, {"ok": False, "error": "Content-Length không hợp lệ"})
-            return
-
-        if content_length <= 0:
-            self.send_json(400, {"ok": False, "error": "Body rỗng"})
-            return
-
-        if content_length > MAX_BODY_BYTES:
-            self.send_json(413, {"ok": False, "error": "Body quá lớn"})
-            return
-
-        try:
-            raw_body = self.rfile.read(content_length)
-            event = json.loads(raw_body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            self.send_json(400, {"ok": False, "error": f"JSON không hợp lệ: {error}"})
-            return
-
-        if not isinstance(event, dict):
-            self.send_json(400, {"ok": False, "error": "Event phải là JSON object"})
-            return
-
-        event_type = str(event.get("eventType") or "").lower()
-        if event_type not in {"join", "comment", "follow", "like", "gift"}:
-            self.send_json(
-                400,
-                {
-                    "ok": False,
-                    "error": f"eventType không hỗ trợ: {event_type!r}",
-                },
-            )
-            return
-
-        event_id = str(event.get("eventId") or "")
-
-        if not register_event_id(event_id):
-            self.send_json(
-                200,
-                {
-                    "ok": True,
-                    "duplicate": True,
-                    "eventId": event_id or None,
-                },
-            )
-            return
-
-        try:
-            EVENT_QUEUE.put_nowait(event)
-        except queue.Full:
-            unregister_event_id(event_id)
-            self.send_json(
-                503,
-                {
-                    "ok": False,
-                    "error": "Hàng đợi game đang đầy",
-                },
-            )
-            return
-
-        self.send_json(
-            202,
-            {
-                "ok": True,
-                "accepted": True,
-                "eventId": event_id or None,
-                "queueSize": EVENT_QUEUE.qsize(),
-            },
-        )
-
-
-class GameEventHttpServer(ThreadingHTTPServer):
-    daemon_threads = True
-    allow_reuse_address = True
-
-
-def main() -> None:
-    worker = threading.Thread(
-        target=event_worker,
-        name="tiktok-game-event-worker",
-        daemon=True,
-    )
-    worker.start()
-
-    server = GameEventHttpServer((HOST, PORT), GameEventHandler)
-
-    print("TIKTOK GAME EVENT SERVER")
-    print(f"Nhận event : http://{HOST}:{PORT}{EVENT_PATH}")
-    print(f"Health     : http://{HOST}:{PORT}/health")
-    print("")
-    print("Server đang đứng chờ. Middleware sẽ tự POST event tới đây.")
-    print("Game không cần gọi /api/recent hoặc polling middleware.")
-    print("Nhấn Ctrl + C để dừng.")
-
-    try:
-        server.serve_forever(poll_interval=0.25)
-    except KeyboardInterrupt:
-        print("\nĐang dừng game event server...")
-    finally:
-        server.shutdown()
-        server.server_close()
-
-
-if __name__ == "__main__":
-    main()
-```
-
-## 5. Chỗ cần sửa khi tích hợp vào game thật
-
-Không sửa phần HTTP nếu không cần thiết. Chủ yếu thay code trong năm hàm:
+Đây là file chuẩn để chạy và tích hợp. Không dùng bản mã sao chép từ tài liệu cũ.
+
+Server hiện có:
+
+- `POST /tiktok-event` nhận event tự động;
+- `GET /health` kiểm tra trạng thái;
+- version `1.3`;
+- `instanceId` riêng cho mỗi process;
+- PID của process;
+- khóa độc quyền port trên Windows bằng `SO_EXCLUSIVEADDRUSE`;
+- chống hai process cùng giữ port `9000`;
+- log mọi handshake và webhook nhận được;
+- `queue.Queue` tách HTTP receiver khỏi logic game;
+- worker tự gọi hàm xử lý;
+- chống event trùng bằng `eventId`;
+- chỉ dùng thư viện chuẩn Python.
+
+Các hàm cần sửa khi nối với game thật:
 
 ```python
 on_join(event)
@@ -474,82 +204,42 @@ def on_gift(event: dict) -> None:
     )
 ```
 
-Nếu engine yêu cầu thay đổi trạng thái trên main thread, giữ nguyên HTTP receiver nhưng để main loop của game lấy dữ liệu từ `EVENT_QUEUE` thay vì gọi trực tiếp object game trong thread HTTP.
+HTTP server tự nhận và gọi các hàm này. Game không cần chủ động gọi middleware.
 
-## 6. Schema event chung
+## 7. Mã handshake
 
-```json
-{
-  "schemaVersion": 1,
-  "eventId": "3dbde00f458b4100ba7af055f35f1404",
-  "eventType": "comment",
-  "timestamp": 1786000000000,
-  "receivedAt": 1786000000010,
-  "source": {
-    "platform": "tiktok",
-    "collector": "dom",
-    "liveUrl": "https://www.tiktok.com/@username/live"
-  },
-  "user": {
-    "id": "duong123",
-    "uniqueId": "duong123",
-    "displayName": "Dương",
-    "identityType": "uniqueId"
-  },
-  "payload": {},
-  "raw": {
-    "text": null
-  }
-}
-```
-
-Các loại:
+File:
 
 ```text
-join
-comment
-follow
-like
-gift
+scripts/send_webhook_handshake.py
 ```
 
-Middleware không phát `leave`.
+Handshake không gửi event giả. Nó gọi:
 
-### COMMENT
+```text
+GET http://127.0.0.1:9000/health
+```
+
+Sau đó kiểm tra JSON phản hồi phải có:
 
 ```json
 {
-  "eventType": "comment",
-  "user": {
-    "id": "duong123",
-    "displayName": "Dương"
-  },
-  "payload": {
-    "text": "đánh",
-    "normalizedText": "ĐÁNH"
-  }
+  "ok": true,
+  "service": "game-event-server",
+  "version": "1.3",
+  "instanceId": "abc123def456",
+  "pid": 1234,
+  "eventPath": "/tiktok-event"
 }
 ```
 
-### GIFT
+Nếu server quá cũ, sai service hoặc sai đường dẫn, middleware không khởi động.
 
-```json
-{
-  "eventType": "gift",
-  "user": {
-    "id": "duong123",
-    "displayName": "Dương"
-  },
-  "payload": {
-    "giftName": "Hoa Hồng",
-    "giftKey": "hoa_hong",
-    "count": 1,
-    "totalCount": 3
-  }
-}
-```
+## 8. Schema LIKE hiện tại
 
-### LIKE mới nhất
+LIKE là hoạt động chung, không xác định người dùng.
+
+Mỗi phần tử tim DOM bắt được tạo một event riêng:
 
 ```json
 {
@@ -570,115 +260,134 @@ Middleware không phát `leave`.
 }
 ```
 
-Mỗi tim được gửi riêng, vì vậy game không cần chia `count` hoặc chờ một gói tổng hợp.
-
-## 7. Vì sao dùng queue?
-
-Webhook có thể tới rất nhanh, đặc biệt khi LIVE có nhiều tim.
-
-Nếu xử lý trực tiếp logic nặng trong `do_POST()`:
+Luồng:
 
 ```text
-Request đến
-    ↓
-Chờ hiệu ứng game chạy xong
-    ↓
-Mới trả HTTP
+Tim 1 → POST 1 → count=1
+Tim 2 → POST 2 → count=1
+Tim 3 → POST 3 → count=1
 ```
 
-middleware có thể timeout và retry.
+Không gom nhiều tim thành một event.
 
-Server mẫu dùng:
+## 9. Schema các event khác
+
+### Comment
+
+```json
+{
+  "eventType": "comment",
+  "user": {
+    "id": "username",
+    "displayName": "Tên người dùng"
+  },
+  "payload": {
+    "text": "đánh",
+    "normalizedText": "ĐÁNH"
+  }
+}
+```
+
+### Gift
+
+```json
+{
+  "eventType": "gift",
+  "user": {
+    "id": "username",
+    "displayName": "Tên người gửi"
+  },
+  "payload": {
+    "giftName": "Hoa Hồng",
+    "giftKey": "hoa_hong",
+    "count": 1,
+    "totalCount": 1
+  }
+}
+```
+
+### Follow và Join
+
+```json
+{
+  "eventType": "follow",
+  "user": {
+    "id": "username",
+    "displayName": "Tên người dùng"
+  },
+  "payload": {
+    "action": "đã theo dõi"
+  }
+}
+```
+
+Middleware không phát `leave`. Game tự quản lý timeout hoặc trạng thái rời phòng.
+
+## 10. Chống event trùng
+
+Webhook có retry khi timeout. Server lưu các `eventId` gần nhất.
+
+Nếu nhận lại cùng `eventId`, server trả `200` nhưng không đưa event vào queue lần thứ hai:
 
 ```text
-Request đến
-    ↓
-Kiểm tra eventId
-    ↓
-Đưa vào queue
-    ↓
-Trả HTTP 202 ngay
-    ↓
-Worker tự xử lý game
+[WEBHOOK TRÙNG] eventId=...
 ```
 
-## 8. Chống xử lý trùng
+## 11. Lỗi process cũ giữ port 9000
 
-Middleware mặc định thử gửi lại một lần nếu webhook lỗi hoặc timeout.
+Bản server cũ từng cho phép tái sử dụng địa chỉ. Trên Windows có thể xảy ra trường hợp nhiều process cùng liên quan đến port `9000`, làm middleware gửi event vào process khác với cửa sổ đang nhìn.
 
-Mỗi event có `eventId` riêng. Server mẫu lưu tối đa 10.000 ID gần nhất:
+Bản `1.3` đã sửa bằng:
 
 ```python
-if not register_event_id(event_id):
-    return duplicate_response
+allow_reuse_address = False
 ```
 
-Nếu nhận lại cùng `eventId`, server trả:
+và:
 
-```json
-{
-  "ok": true,
-  "duplicate": true
-}
+```python
+socket.SO_EXCLUSIVEADDRUSE
 ```
 
-nhưng không chạy logic game lần thứ hai.
+Nếu port đã bị giữ, server mới phải báo lỗi ngay thay vì âm thầm chạy.
 
-## 9. Kiểm tra server game
-
-Sau khi chạy `game_event_server.py`:
+Kiểm tra PID giữ port:
 
 ```cmd
-curl http://127.0.0.1:9000/health
+netstat -ano | findstr LISTENING | findstr :9000
 ```
 
-Kết quả:
-
-```json
-{
-  "ok": true,
-  "service": "game-event-server",
-  "eventPath": "/tiktok-event",
-  "queueSize": 0,
-  "queueCapacity": 5000
-}
-```
-
-## 10. Gửi thử event thủ công
-
-Có thể kiểm tra server game mà chưa mở TikTok:
+Dừng PID cũ:
 
 ```cmd
-curl -X POST http://127.0.0.1:9000/tiktok-event ^
-  -H "Content-Type: application/json" ^
-  -d "{\"schemaVersion\":1,\"eventId\":\"test-like-001\",\"eventType\":\"like\",\"user\":{\"id\":\"anonymous:like\",\"displayName\":\"LIKE\"},\"payload\":{\"count\":1,\"source\":\"heart-animation\",\"anonymous\":true}}"
+taskkill /PID 1234 /F
 ```
 
-Server phải hiện:
-
-```text
-[LIKE] x1 | source=heart-animation
-```
-
-## 11. Gửi tới nhiều game hoặc ứng dụng
-
-Phân cách URL bằng dấu phẩy:
+Sau đó chạy lại:
 
 ```cmd
-set "WEBHOOK_URLS=http://127.0.0.1:9000/tiktok-event,http://127.0.0.1:9001/tiktok-event"
-start_visible.bat ten_tiktok
+start_middleware_to_game.bat ten_tiktok
 ```
 
-Một event sẽ được gửi đồng thời tới cả hai URL.
+## 12. Kiểm tra phiên bản local
 
-## 12. Game ở máy khác trong mạng LAN
-
-Ví dụ:
-
-```text
-Máy middleware: 192.168.1.10
-Máy game      : 192.168.1.20
+```cmd
+findstr /C:"SERVER_VERSION = \"1.3\"" examples\game_event_server.py
 ```
+
+```cmd
+findstr /C:"handshake/3.0" scripts\send_webhook_handshake.py
+```
+
+Cập nhật:
+
+```cmd
+git pull origin main
+```
+
+Sau khi pull, phải đóng các cửa sổ Python/Node cũ rồi chạy lại, vì process đang chạy không tự nạp code mới.
+
+## 13. Gửi tới server ở máy khác trong LAN
 
 Trên máy game:
 
@@ -687,114 +396,54 @@ set "GAME_EVENT_HOST=0.0.0.0"
 python examples\game_event_server.py
 ```
 
-Trên máy middleware:
+Trên máy middleware, đặt IP máy game:
 
 ```cmd
-set "WEBHOOK_URLS=http://192.168.1.20:9000/tiktok-event"
+set "WEBHOOK_URLS=http://192.168.1.60:9000/tiktok-event"
 start_visible.bat ten_tiktok
 ```
 
-Nếu Windows Firewall chặn port 9000, mở CMD bằng quyền Administrator:
+Mở firewall trên máy game nếu cần:
 
 ```cmd
 netsh advfirewall firewall add rule name="TikTok Game Event 9000" dir=in action=allow protocol=TCP localport=9000
 ```
 
-Không cần mở port router vì kết nối chỉ nằm trong LAN.
+Không cần mở port router nếu chỉ dùng trong LAN.
 
-## 13. Các biến cấu hình server game
+## 14. Webhook khác SSE thế nào?
+
+Webhook:
+
+```text
+Middleware chủ động POST sang game
+```
+
+SSE:
+
+```text
+Game mở một kết nối GET /api/events một lần
+Middleware đẩy event xuống kết nối đó
+```
+
+Với yêu cầu server game nhận tự động trong hệ thống nội bộ, webhook là lựa chọn chính.
+
+## 15. Tóm tắt
+
+Cách ngắn nhất:
 
 ```cmd
-set "GAME_EVENT_HOST=127.0.0.1"
-set "GAME_EVENT_PORT=9000"
-set "GAME_EVENT_PATH=/tiktok-event"
-set "GAME_EVENT_QUEUE_SIZE=5000"
-set "GAME_EVENT_ID_CACHE=10000"
-python examples\game_event_server.py
+start_middleware_to_game.bat ten_tiktok
 ```
 
-Mặc định:
-
-| Biến | Giá trị |
-|---|---:|
-| `GAME_EVENT_HOST` | `127.0.0.1` |
-| `GAME_EVENT_PORT` | `9000` |
-| `GAME_EVENT_PATH` | `/tiktok-event` |
-| `GAME_EVENT_QUEUE_SIZE` | `5000` |
-| `GAME_EVENT_ID_CACHE` | `10000` |
-
-## 14. Cấu hình webhook middleware
-
-```cmd
-set "WEBHOOK_URLS=http://127.0.0.1:9000/tiktok-event"
-set "WEBHOOK_TIMEOUT_MS=3000"
-set "WEBHOOK_RETRY_COUNT=1"
-start_visible.bat ten_tiktok
-```
-
-Middleware coi mọi phản hồi HTTP `2xx` là thành công.
-
-Server mẫu trả:
-
-- `202`: event mới đã được đưa vào queue;
-- `200`: event trùng đã được nhận trước đó;
-- `400`: JSON hoặc `eventType` không hợp lệ;
-- `413`: body quá lớn;
-- `503`: queue đang đầy.
-
-## 15. SSE là lựa chọn thứ hai
-
-Webhook là kiểu middleware chủ động gọi server game.
-
-SSE là kiểu ứng dụng mở một kết nối lâu dài tới middleware:
-
-```javascript
-const source = new EventSource(
-  "http://127.0.0.1:8787/api/events"
-);
-
-source.addEventListener("tiktok-event", message => {
-  const event = JSON.parse(message.data);
-  handleTikTokEvent(event);
-});
-```
-
-SSE cũng không polling, nhưng ứng dụng phải chủ động mở kết nối một lần.
-
-Các ví dụ có sẵn:
+Kết quả đúng:
 
 ```text
-examples/node_sse_client.mjs
-examples/browser_sse_client.html
+Game server version 1.3
+Có instanceId và PID
+Handshake GET /health thành công
+Middleware mở TikTok LIVE
+Mỗi event được tự POST tới /tiktok-event
+Server in [WEBHOOK NHẬN]
+Worker tự gọi logic game
 ```
-
-## 16. Không dùng `/api/recent` làm realtime
-
-Không nên:
-
-```javascript
-setInterval(async () => {
-  const events = await fetch("http://127.0.0.1:8787/api/recent");
-}, 1000);
-```
-
-Cách đúng với game server nội bộ:
-
-```text
-Game mở POST /tiktok-event
-Middleware tự POST mỗi event mới
-Game nhận và xử lý ngay
-```
-
-## 17. Trình tự chạy chuẩn
-
-```text
-Bước 1: python examples\game_event_server.py
-Bước 2: start_middleware_to_game.bat ten_tiktok
-Bước 3: TikTok có event
-Bước 4: middleware tự POST
-Bước 5: server đưa event vào queue
-Bước 6: hàm on_join/on_comment/on_follow/on_like/on_gift tự chạy
-```
-
-Đây là cơ chế nhận tự động hoàn toàn trong mạng nội bộ. Chỉ trình duyệt của middleware cần Internet để mở TikTok LIVE.
