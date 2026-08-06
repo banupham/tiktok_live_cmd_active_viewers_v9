@@ -1,11 +1,14 @@
 {
-  "name": "tiktok-live-cmd-active-viewers-v9",
-  "version": "9.0.0",
+  "name": "tiktok-live-event-middleware",
+  "version": "10.0.0",
   "private": true,
   "type": "module",
+  "description": "Middleware chuẩn hóa sự kiện TikTok LIVE và phân phối qua SSE/webhook cho game, ứng dụng.",
   "scripts": {
     "start": "node a.mjs",
-    "sync-profile": "node sync_profile.mjs"
+    "check": "node scripts/check.mjs",
+    "sync-profile": "node sync_profile.mjs",
+    "example:sse": "node examples/node_sse_client.mjs"
   },
   "dependencies": {
     "playwright": "^1.55.0"
