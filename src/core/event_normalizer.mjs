@@ -69,6 +69,17 @@ export class TikTokEventNormalizer {
   }
 
   resolveUser(rawEvent) {
+    const eventType = cleanText(rawEvent?.type).toLowerCase();
+
+    if (eventType === "like" && rawEvent?.anonymous) {
+      return {
+        id: "anonymous:like",
+        uniqueId: null,
+        displayName: "LIKE",
+        identityType: "anonymous",
+      };
+    }
+
     const displayName = cleanText(rawEvent?.sender) || "Không rõ";
     const uniqueId = normalizeUniqueId(rawEvent?.uniqueId);
     const nicknameKey = displayName.toLocaleLowerCase("vi");
@@ -117,6 +128,8 @@ export class TikTokEventNormalizer {
     if (eventType === "like") {
       payload.count = Math.max(1, Math.floor(Number(rawEvent.count) || 1));
       payload.action = cleanText(rawEvent.action) || null;
+      payload.source = cleanText(rawEvent.source) || "unknown";
+      payload.anonymous = Boolean(rawEvent.anonymous);
       payload.suspected = true;
     }
 
