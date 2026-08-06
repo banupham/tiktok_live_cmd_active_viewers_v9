@@ -20,16 +20,28 @@ assert.equal(comment.eventType, "comment");
 assert.equal(comment.payload.normalizedText, "ĐÁNH");
 assert.equal(comment.user.id, "duong123");
 
+const incompleteGift = normalizer.normalize({
+  type: "gift",
+  sender: "đã",
+  gift: "Hoa hồng",
+  count: 1,
+  totalCount: 1,
+  raw: "đã gửi Hoa hồng x1",
+});
+assert.equal(incompleteGift, null);
+
 const gift = normalizer.normalize({
   type: "gift",
-  sender: "Dương",
+  sender: "Đ a N G",
   gift: "Hoa Hồng",
   count: 1,
   totalCount: 3,
+  raw: "Đ a N G gửi Hoa Hồng x3",
 });
 
 assert.equal(gift.payload.giftKey, "hoa_hong");
 assert.equal(gift.payload.totalCount, 3);
+assert.equal(gift.user.displayName, "Đ a N G");
 assert.equal(normalizer.normalize({ type: "leave", sender: "Dương" }), null);
 
 const eventBus = new EventBus({ maxRecent: 5 });
