@@ -19,16 +19,21 @@ set "WEBHOOK_RETRY_COUNT=1"
 echo Middleware se tu dong POST event toi:
 echo   %WEBHOOK_URLS%
 echo.
-echo Dang kiem tra ket noi toi server game...
+echo Dang kiem tra dung process server game...
 python "%~dp0scripts\send_webhook_handshake.py"
 
 if errorlevel 1 (
   echo.
-  echo [LOI] Chua ket noi duoc voi server game.
-  echo Hay mo CMD khac va chay truoc:
+  echo [LOI] Chua ket noi dung voi server game.
+  echo Co the mot process cu dang giu port 9000.
+  echo.
+  echo Process dang LISTEN tren port 9000:
+  netstat -ano | findstr LISTENING | findstr :9000
+  echo.
+  echo Hay dong tat ca cua so game_event_server.py cu, sau do chay lai:
   echo   python examples\game_event_server.py
   echo.
-  echo Middleware KHONG duoc khoi dong de tranh mat event.
+  echo Middleware KHONG duoc khoi dong de tranh gui nham process.
   exit /b 2
 )
 
