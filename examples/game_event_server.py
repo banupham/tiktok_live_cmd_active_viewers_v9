@@ -9,8 +9,6 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-# Mặc định chỉ nhận kết nối nội bộ trên chính máy này.
-# Muốn nhận từ máy khác trong LAN: set GAME_EVENT_HOST=0.0.0.0
 HOST = os.environ.get("GAME_EVENT_HOST", "127.0.0.1").strip()
 PORT = int(os.environ.get("GAME_EVENT_PORT", "9000"))
 EVENT_PATH = os.environ.get("GAME_EVENT_PATH", "/tiktok-event").strip()
@@ -18,15 +16,7 @@ MAX_BODY_BYTES = int(os.environ.get("GAME_EVENT_MAX_BODY", str(2 * 1024 * 1024))
 MAX_QUEUE_SIZE = int(os.environ.get("GAME_EVENT_QUEUE_SIZE", "5000"))
 MAX_REMEMBERED_EVENT_IDS = int(os.environ.get("GAME_EVENT_ID_CACHE", "10000"))
 
-SUPPORTED_EVENT_TYPES = {
-    "middleware_status",
-    "join",
-    "comment",
-    "follow",
-    "like",
-    "gift",
-}
-
+SUPPORTED_EVENT_TYPES = {"join", "comment", "follow", "like", "gift"}
 EVENT_QUEUE: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=MAX_QUEUE_SIZE)
 
 _event_ids: set[str] = set()
@@ -40,7 +30,12 @@ _connection_state: dict[str, Any] = {
     "lastClientIp": None,
     "lastEventType": None,
     "receivedRequests": 0,
+    "lastHealthHandshakeAt": None,
 }
+
+
+def now_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
 
 
 def time_text() -> str:
@@ -48,7 +43,6 @@ def time_text() -> str:
 
 
 def register_event_id(event_id: str) -> bool:
-    """Trả về False nếu eventId đã được xử lý trước đó."""
     if not event_id:
         return True
 
@@ -67,7 +61,6 @@ def register_event_id(event_id: str) -> bool:
 
 
 def unregister_event_id(event_id: str) -> None:
-    """Hủy đăng ký nếu chưa thể đưa event vào queue."""
     if not event_id:
         return
 
@@ -79,6 +72,25 @@ def unregister_event_id(event_id: str) -> None:
             pass
 
 
+def mark_health_handshake(client_ip: str, webhook_url: str | None) -> None:
+    with _connection_lock:
+        _connection_state["connected"] = True
+        _connection_state["lastClientIp"] = client_ip
+        _connection_state["lastEventType"] = "health_handshake"
+        _connection_state["lastHealthHandshakeAt"] = now_iso()
+
+    print("")
+    print("============================================================")
+    print("[KẾT NỐI OK] TIKTOK LIVE EVENT MIDDLEWARE → SERVER GAME")
+    print(f"[THỜI GIAN] {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    print(f"[MÁY GỬI] {client_ip}")
+    print("[KIỂM TRA] GET /health thành công")
+    if webhook_url:
+        print(f"[WEBHOOK] {webhook_url}")
+    print("============================================================")
+    print("", flush=True)
+
+
 def mark_webhook_received(
     client_ip: str,
     event_type: str,
@@ -86,86 +98,51 @@ def mark_webhook_received(
 ) -> None:
     with _connection_lock:
         _connection_state["connected"] = True
-        _connection_state["lastWebhookAt"] = datetime.now().isoformat(timespec="seconds")
+        _connection_state["lastWebhookAt"] = now_iso()
         _connection_state["lastClientIp"] = client_ip
         _connection_state["lastEventType"] = event_type
         _connection_state["receivedRequests"] += 1
         request_number = _connection_state["receivedRequests"]
 
-    event_id_text = event_id or "không có"
     print(
         f"[{time_text()}] [WEBHOOK NHẬN #{request_number}] "
-        f"từ {client_ip} | type={event_type} | eventId={event_id_text}",
+        f"từ {client_ip} | type={event_type} | "
+        f"eventId={event_id or 'không có'}",
         flush=True,
     )
-
-
-def on_middleware_status(event: dict[str, Any]) -> None:
-    payload = event.get("payload") or {}
-
-    print("")
-    print("============================================================")
-    print("[KẾT NỐI OK] TIKTOK LIVE EVENT MIDDLEWARE → SERVER GAME")
-    print(f"[THỜI GIAN] {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-    print(f"[TRẠNG THÁI] {payload.get('status', 'connected')}")
-    print(f"[THÔNG BÁO] {payload.get('message', 'Đã nhận được webhook')}")
-    if payload.get("webhookUrl"):
-        print(f"[ĐỊA CHỈ] {payload.get('webhookUrl')}")
-    print("============================================================")
-    print("")
 
 
 def on_join(event: dict[str, Any]) -> None:
     user = event.get("user") or {}
     print(f"[JOIN] {user.get('displayName')}", flush=True)
 
-    # Ví dụ tích hợp game:
-    # game.ensure_player(user)
-
 
 def on_comment(event: dict[str, Any]) -> None:
     user = event.get("user") or {}
     payload = event.get("payload") or {}
-
     print(
         f"[COMMENT] {user.get('displayName')}: {payload.get('text')}",
         flush=True,
     )
-
-    # Ví dụ tích hợp game:
-    # game.execute_command(
-    #     user_id=user.get("id"),
-    #     command=payload.get("normalizedText"),
-    # )
 
 
 def on_follow(event: dict[str, Any]) -> None:
     user = event.get("user") or {}
     print(f"[FOLLOW] {user.get('displayName')}", flush=True)
 
-    # Ví dụ tích hợp game:
-    # game.reward_follow(user.get("id"))
-
 
 def on_like(event: dict[str, Any]) -> None:
     payload = event.get("payload") or {}
     count = max(1, int(payload.get("count") or 1))
-
-    # LIKE hiện là hoạt động tim ẩn danh.
-    # Mỗi tim DOM bắt được tạo một event riêng với count=1.
     print(
         f"[LIKE] x{count} | source={payload.get('source')}",
         flush=True,
     )
 
-    # Ví dụ tích hợp game:
-    # game.add_global_energy(count)
-
 
 def on_gift(event: dict[str, Any]) -> None:
     user = event.get("user") or {}
     payload = event.get("payload") or {}
-
     print(
         f"[GIFT] {user.get('displayName')} gửi "
         f"{payload.get('giftName')} x{payload.get('count', 1)} "
@@ -173,25 +150,9 @@ def on_gift(event: dict[str, Any]) -> None:
         flush=True,
     )
 
-    # Ví dụ tích hợp game:
-    # game.apply_gift(
-    #     user_id=user.get("id"),
-    #     gift_key=payload.get("giftKey"),
-    #     count=payload.get("count", 1),
-    # )
-
 
 def handle_tiktok_event(event: dict[str, Any]) -> None:
-    """
-    Đây là hàm trung tâm cần thay đổi khi tích hợp vào game thật.
-
-    HTTP server chỉ nhận JSON và đưa vào EVENT_QUEUE. Worker gọi hàm này
-    tự động ngay khi có event mới; game không cần gọi middleware để hỏi.
-    """
-    event_type = str(event.get("eventType") or "").lower()
-
     handlers = {
-        "middleware_status": on_middleware_status,
         "join": on_join,
         "comment": on_comment,
         "follow": on_follow,
@@ -199,7 +160,9 @@ def handle_tiktok_event(event: dict[str, Any]) -> None:
         "gift": on_gift,
     }
 
+    event_type = str(event.get("eventType") or "").lower()
     handler = handlers.get(event_type)
+
     if handler is None:
         print(f"[BỎ QUA] eventType không hỗ trợ: {event_type!r}", flush=True)
         return
@@ -208,23 +171,21 @@ def handle_tiktok_event(event: dict[str, Any]) -> None:
 
 
 def event_worker() -> None:
-    """Tự lấy event trong queue và gọi logic game."""
     while True:
         event = EVENT_QUEUE.get()
 
         try:
             handle_tiktok_event(event)
-        except Exception as error:  # noqa: BLE001 - server mẫu phải tiếp tục chạy
+        except Exception as error:
             print(f"[GAME ERROR] {error}", flush=True)
         finally:
             EVENT_QUEUE.task_done()
 
 
 class GameEventHandler(BaseHTTPRequestHandler):
-    server_version = "TikTokGameEventServer/1.1"
+    server_version = "TikTokGameEventServer/1.2"
 
     def log_message(self, format: str, *args: object) -> None:
-        # Tắt access log mặc định; dùng log webhook rõ ràng ở mark_webhook_received().
         return
 
     def send_json(self, status: int, payload: dict[str, Any]) -> None:
@@ -238,24 +199,36 @@ class GameEventHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
-        if self.path == "/health":
-            with _connection_lock:
-                connection = dict(_connection_state)
+        request_path = self.path.split("?", 1)[0]
 
-            self.send_json(
-                200,
-                {
-                    "ok": True,
-                    "service": "game-event-server",
-                    "eventPath": EVENT_PATH,
-                    "queueSize": EVENT_QUEUE.qsize(),
-                    "queueCapacity": MAX_QUEUE_SIZE,
-                    "connection": connection,
-                },
-            )
+        if request_path != "/health":
+            self.send_json(404, {"ok": False, "error": "Not found"})
             return
 
-        self.send_json(404, {"ok": False, "error": "Not found"})
+        client_ip = self.client_address[0] if self.client_address else "không rõ"
+        is_handshake = self.headers.get("X-TikTok-Middleware-Handshake") == "1"
+
+        if is_handshake:
+            mark_health_handshake(
+                client_ip,
+                self.headers.get("X-TikTok-Webhook-Url"),
+            )
+
+        with _connection_lock:
+            connection = dict(_connection_state)
+
+        self.send_json(
+            200,
+            {
+                "ok": True,
+                "service": "game-event-server",
+                "version": "1.2",
+                "eventPath": EVENT_PATH,
+                "queueSize": EVENT_QUEUE.qsize(),
+                "queueCapacity": MAX_QUEUE_SIZE,
+                "connection": connection,
+            },
+        )
 
     def do_POST(self) -> None:
         if self.path != EVENT_PATH:
@@ -265,7 +238,10 @@ class GameEventHandler(BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
-            self.send_json(400, {"ok": False, "error": "Content-Length không hợp lệ"})
+            self.send_json(
+                400,
+                {"ok": False, "error": "Content-Length không hợp lệ"},
+            )
             return
 
         if content_length <= 0:
@@ -280,14 +256,21 @@ class GameEventHandler(BaseHTTPRequestHandler):
             raw_body = self.rfile.read(content_length)
             event = json.loads(raw_body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            self.send_json(400, {"ok": False, "error": f"JSON không hợp lệ: {error}"})
+            self.send_json(
+                400,
+                {"ok": False, "error": f"JSON không hợp lệ: {error}"},
+            )
             return
 
         if not isinstance(event, dict):
-            self.send_json(400, {"ok": False, "error": "Event phải là JSON object"})
+            self.send_json(
+                400,
+                {"ok": False, "error": "Event phải là JSON object"},
+            )
             return
 
         event_type = str(event.get("eventType") or "").lower()
+
         if event_type not in SUPPORTED_EVENT_TYPES:
             self.send_json(
                 400,
@@ -308,8 +291,6 @@ class GameEventHandler(BaseHTTPRequestHandler):
                 f"[{time_text()}] [WEBHOOK TRÙNG] eventId={event_id}",
                 flush=True,
             )
-            # Webhook có thể retry khi timeout. Event trùng vẫn trả 200 để
-            # middleware biết rằng server đã nhận event này trước đó.
             self.send_json(
                 200,
                 {
@@ -326,14 +307,10 @@ class GameEventHandler(BaseHTTPRequestHandler):
             unregister_event_id(event_id)
             self.send_json(
                 503,
-                {
-                    "ok": False,
-                    "error": "Hàng đợi game đang đầy",
-                },
+                {"ok": False, "error": "Hàng đợi game đang đầy"},
             )
             return
 
-        # Trả lời ngay sau khi đã đưa vào queue. Worker sẽ tự xử lý tiếp.
         self.send_json(
             202,
             {
