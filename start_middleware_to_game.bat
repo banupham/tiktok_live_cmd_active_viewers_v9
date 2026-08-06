@@ -19,8 +19,22 @@ set "WEBHOOK_RETRY_COUNT=1"
 echo Middleware se tu dong POST event toi:
 echo   %WEBHOOK_URLS%
 echo.
-echo Hay dam bao da chay truoc:
-echo   python examples\game_event_server.py
+echo Dang kiem tra ket noi toi server game...
+python "%~dp0scripts\send_webhook_handshake.py"
+
+if errorlevel 1 (
+  echo.
+  echo [LOI] Chua ket noi duoc voi server game.
+  echo Hay mo CMD khac va chay truoc:
+  echo   python examples\game_event_server.py
+  echo.
+  echo Middleware KHONG duoc khoi dong de tranh mat event.
+  exit /b 2
+)
+
+echo.
+echo [KET NOI OK] Middleware va server game da thong nhau.
+echo Dang mo TikTok LIVE...
 echo.
 
 call "%~dp0start_visible.bat" "%~1"
