@@ -17,6 +17,7 @@ export class WebhookDispatcher {
     this.logger = logger;
     this.queue = Promise.resolve();
     this.lastErrorAt = new Map();
+    this.connectedUrls = new Set();
   }
 
   dispatch(event) {
@@ -47,6 +48,13 @@ export class WebhookDispatcher {
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
+        }
+
+        if (!this.connectedUrls.has(url)) {
+          this.connectedUrls.add(url);
+          this.logger.log?.(
+            `[WEBHOOK] KẾT NỐI OK - đã gửi thành công tới ${url}`
+          );
         }
 
         return true;
