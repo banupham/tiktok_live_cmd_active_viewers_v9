@@ -18,8 +18,9 @@ MAX_BODY_BYTES = int(os.environ.get("GAME_EVENT_MAX_BODY", str(2 * 1024 * 1024))
 MAX_QUEUE_SIZE = int(os.environ.get("GAME_EVENT_QUEUE_SIZE", "5000"))
 MAX_REMEMBERED_EVENT_IDS = int(os.environ.get("GAME_EVENT_ID_CACHE", "10000"))
 
-SERVER_VERSION = "1.3"
+SERVER_VERSION = "1.4"
 SERVER_INSTANCE_ID = uuid.uuid4().hex[:12]
+SERVER_SESSION_TOKEN = os.environ.get("GAME_EVENT_INSTANCE_TOKEN", "").strip()
 SERVER_PID = os.getpid()
 
 SUPPORTED_EVENT_TYPES = {"join", "comment", "follow", "like", "gift"}
@@ -85,10 +86,7 @@ def mark_health_request(
     webhook_url: str | None,
 ) -> None:
     request_kind = "HANDSHAKE" if is_handshake else "HEALTH"
-    print(
-        f"[{time_text()}] [{request_kind}] GET /health từ {client_ip}",
-        flush=True,
-    )
+    print(f"[{time_text()}] [{request_kind}] GET /health từ {client_ip}", flush=True)
 
     if not is_handshake:
         return
@@ -113,11 +111,7 @@ def mark_health_request(
     print("", flush=True)
 
 
-def mark_webhook_received(
-    client_ip: str,
-    event_type: str,
-    event_id: str,
-) -> None:
+def mark_webhook_received(client_ip: str, event_type: str, event_id: str) -> None:
     with _connection_lock:
         _connection_state["connected"] = True
         _connection_state["lastWebhookAt"] = now_iso()
@@ -142,10 +136,7 @@ def on_join(event: dict[str, Any]) -> None:
 def on_comment(event: dict[str, Any]) -> None:
     user = event.get("user") or {}
     payload = event.get("payload") or {}
-    print(
-        f"[COMMENT] {user.get('displayName')}: {payload.get('text')}",
-        flush=True,
-    )
+    print(f"[COMMENT] {user.get('displayName')}: {payload.get('text')}", flush=True)
 
 
 def on_follow(event: dict[str, Any]) -> None:
@@ -156,10 +147,7 @@ def on_follow(event: dict[str, Any]) -> None:
 def on_like(event: dict[str, Any]) -> None:
     payload = event.get("payload") or {}
     count = max(1, int(payload.get("count") or 1))
-    print(
-        f"[LIKE] x{count} | source={payload.get('source')}",
-        flush=True,
-    )
+    print(f"[LIKE] x{count} | source={payload.get('source')}", flush=True)
 
 
 def on_gift(event: dict[str, Any]) -> None:
@@ -181,7 +169,6 @@ def handle_tiktok_event(event: dict[str, Any]) -> None:
         "like": on_like,
         "gift": on_gift,
     }
-
     event_type = str(event.get("eventType") or "").lower()
     handler = handlers.get(event_type)
 
@@ -195,7 +182,6 @@ def handle_tiktok_event(event: dict[str, Any]) -> None:
 def event_worker() -> None:
     while True:
         event = EVENT_QUEUE.get()
-
         try:
             handle_tiktok_event(event)
         except Exception as error:
@@ -212,7 +198,6 @@ class GameEventHandler(BaseHTTPRequestHandler):
 
     def send_json(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -224,14 +209,12 @@ class GameEventHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         request_path = self.path.split("?", 1)[0]
-
         if request_path != "/health":
             self.send_json(404, {"ok": False, "error": "Not found"})
             return
 
         client_ip = self.client_address[0] if self.client_address else "không rõ"
         is_handshake = self.headers.get("X-TikTok-Middleware-Handshake") == "1"
-
         mark_health_request(
             client_ip,
             is_handshake=is_handshake,
@@ -248,6 +231,7 @@ class GameEventHandler(BaseHTTPRequestHandler):
                 "service": "game-event-server",
                 "version": SERVER_VERSION,
                 "instanceId": SERVER_INSTANCE_ID,
+                "instanceToken": SERVER_SESSION_TOKEN,
                 "pid": SERVER_PID,
                 "eventPath": EVENT_PATH,
                 "queueSize": EVENT_QUEUE.qsize(),
@@ -258,7 +242,6 @@ class GameEventHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         request_path = self.path.split("?", 1)[0]
-
         if request_path != EVENT_PATH:
             self.send_json(404, {"ok": False, "error": "Not found"})
             return
@@ -266,10 +249,7 @@ class GameEventHandler(BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
-            self.send_json(
-                400,
-                {"ok": False, "error": "Content-Length không hợp lệ"},
-            )
+            self.send_json(400, {"ok": False, "error": "Content-Length không hợp lệ"})
             return
 
         if content_length <= 0:
@@ -284,60 +264,32 @@ class GameEventHandler(BaseHTTPRequestHandler):
             raw_body = self.rfile.read(content_length)
             event = json.loads(raw_body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            self.send_json(
-                400,
-                {"ok": False, "error": f"JSON không hợp lệ: {error}"},
-            )
+            self.send_json(400, {"ok": False, "error": f"JSON không hợp lệ: {error}"})
             return
 
         if not isinstance(event, dict):
-            self.send_json(
-                400,
-                {"ok": False, "error": "Event phải là JSON object"},
-            )
+            self.send_json(400, {"ok": False, "error": "Event phải là JSON object"})
             return
 
         event_type = str(event.get("eventType") or "").lower()
-
         if event_type not in SUPPORTED_EVENT_TYPES:
-            self.send_json(
-                400,
-                {
-                    "ok": False,
-                    "error": f"eventType không hỗ trợ: {event_type!r}",
-                },
-            )
+            self.send_json(400, {"ok": False, "error": f"eventType không hỗ trợ: {event_type!r}"})
             return
 
         event_id = str(event.get("eventId") or "")
         client_ip = self.client_address[0] if self.client_address else "không rõ"
-
         mark_webhook_received(client_ip, event_type, event_id)
 
         if not register_event_id(event_id):
-            print(
-                f"[{time_text()}] [WEBHOOK TRÙNG] eventId={event_id}",
-                flush=True,
-            )
-            self.send_json(
-                200,
-                {
-                    "ok": True,
-                    "duplicate": True,
-                    "eventId": event_id or None,
-                    "instanceId": SERVER_INSTANCE_ID,
-                },
-            )
+            print(f"[{time_text()}] [WEBHOOK TRÙNG] eventId={event_id}", flush=True)
+            self.send_json(200, {"ok": True, "duplicate": True, "eventId": event_id or None})
             return
 
         try:
             EVENT_QUEUE.put_nowait(event)
         except queue.Full:
             unregister_event_id(event_id)
-            self.send_json(
-                503,
-                {"ok": False, "error": "Hàng đợi game đang đầy"},
-            )
+            self.send_json(503, {"ok": False, "error": "Hàng đợi game đang đầy"})
             return
 
         self.send_json(
@@ -358,24 +310,13 @@ class GameEventHttpServer(ThreadingHTTPServer):
     allow_reuse_address = False
 
     def server_bind(self) -> None:
-        # Trên Windows, khóa độc quyền port để không có hai process cùng giữ
-        # port 9000. Nếu server cũ còn chạy, process mới phải báo lỗi ngay.
         if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-            self.socket.setsockopt(
-                socket.SOL_SOCKET,
-                socket.SO_EXCLUSIVEADDRUSE,
-                1,
-            )
-
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
 
 
 def main() -> None:
-    worker = threading.Thread(
-        target=event_worker,
-        name="tiktok-game-event-worker",
-        daemon=True,
-    )
+    worker = threading.Thread(target=event_worker, name="tiktok-game-event-worker", daemon=True)
     worker.start()
 
     try:
@@ -385,26 +326,20 @@ def main() -> None:
         print("============================================================")
         print(f"[KHÔNG MỞ ĐƯỢC SERVER] {HOST}:{PORT}")
         print(f"[LỖI] {error}")
-        print("")
         print("Có thể một game_event_server.py cũ vẫn đang chạy.")
-        print("Kiểm tra process giữ port bằng:")
-        print(f"  netstat -ano | findstr :{PORT}")
-        print("Sau đó đóng process cũ hoặc dùng:")
-        print("  taskkill /PID <PID> /F")
+        print(f"Kiểm tra: netstat -ano | findstr :{PORT}")
         print("============================================================")
         raise SystemExit(2) from error
 
     print("TIKTOK GAME EVENT SERVER")
     print(f"Phiên bản  : {SERVER_VERSION}")
     print(f"Instance   : {SERVER_INSTANCE_ID}")
+    print(f"Session    : {SERVER_SESSION_TOKEN or 'không cấu hình'}")
     print(f"PID        : {SERVER_PID}")
     print(f"Nhận event : http://{HOST}:{PORT}{EVENT_PATH}")
     print(f"Health     : http://{HOST}:{PORT}/health")
     print("")
-    print("[ĐANG CHỜ] Chưa có middleware kết nối.")
-    print("Hãy mở CMD khác và chạy:")
-    print("  start_middleware_to_game.bat ten_tiktok")
-    print("")
+    print("[ĐANG CHỜ] Middleware kiểm tra kết nối...")
     print("Mọi GET /health và POST event đều sẽ được in ra cửa sổ này.")
     print("Nhấn Ctrl + C để dừng.")
 
