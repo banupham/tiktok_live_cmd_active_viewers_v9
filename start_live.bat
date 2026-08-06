@@ -1,6 +1,7 @@
 @echo off
 chcp 65001 >nul
 setlocal
+cd /d "%~dp0"
 
 if "%~1"=="" (
   echo Cach dung:
@@ -10,12 +11,12 @@ if "%~1"=="" (
   exit /b 1
 )
 
-set "CHROME_PROFILE=Profile 1"
-set "COLLECTOR_PROFILE=%LOCALAPPDATA%\TikTokLiveCollectorChrome\Profile 1"
+if not defined CHROME_PROFILE set "CHROME_PROFILE=Profile 1"
+set "COLLECTOR_PROFILE=%LOCALAPPDATA%\TikTokLiveCollectorChrome\%CHROME_PROFILE%"
 
 if not exist "%COLLECTOR_PROFILE%" (
   echo.
-  echo Chua co ban sao Profile 1 cho collector.
+  echo Chua co ban sao Chrome profile cho collector.
   echo Hay dong Google Chrome va chay:
   echo   sync_profile.bat
   echo.
