@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node a.mjs",
     "check": "node scripts/check.mjs",
+    "test:smoke": "node scripts/smoke_test.mjs",
     "sync-profile": "node sync_profile.mjs",
     "example:sse": "node examples/node_sse_client.mjs"
   },
