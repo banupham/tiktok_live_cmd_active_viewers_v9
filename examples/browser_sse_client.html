@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TikTok LIVE SSE Client</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; }
+    input { width: 420px; max-width: 100%; padding: 8px; }
+    button { padding: 8px 12px; margin-left: 6px; }
+    pre { background: #111; color: #eee; padding: 14px; min-height: 280px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>TikTok LIVE Event Middleware — SSE</h1>
+  <p>Trình duyệt chỉ mở một kết nối. Middleware tự đẩy event mới qua kết nối đó.</p>
+
+  <input id="endpoint" value="http://127.0.0.1:8787/api/events">
+  <button id="connect">Kết nối</button>
+  <button id="disconnect" disabled>Ngắt</button>
+
+  <p id="status">Chưa kết nối</p>
+  <pre id="log"></pre>
+
+  <script>
+    let source = null;
+
+    const endpointInput = document.querySelector("#endpoint");
+    const connectButton = document.querySelector("#connect");
+    const disconnectButton = document.querySelector("#disconnect");
+    const statusElement = document.querySelector("#status");
+    const logElement = document.querySelector("#log");
+
+    function appendLog(value) {
+      logElement.textContent += `${value}\n`;
+      logElement.scrollTop = logElement.scrollHeight;
+    }
+
+    function disconnect() {
+      source?.close();
+      source = null;
+      statusElement.textContent = "Đã ngắt kết nối";
+      connectButton.disabled = false;
+      disconnectButton.disabled = true;
+    }
+
+    connectButton.addEventListener("click", () => {
+      disconnect();
+
+      const endpoint = endpointInput.value.trim();
+      source = new EventSource(endpoint);
+      statusElement.textContent = `Đang kết nối: ${endpoint}`;
+      connectButton.disabled = true;
+      disconnectButton.disabled = false;
+
+      source.addEventListener("connected", event => {
+        statusElement.textContent = "Đã kết nối, đang chờ event...";
+        appendLog(`[CONNECTED] ${event.data}`);
+      });
+
+      source.addEventListener("tiktok-event", message => {
+        const event = JSON.parse(message.data);
+        appendLog(
+          `[${event.eventType.toUpperCase()}] ` +
+          `${event.user.displayName} ` +
+          JSON.stringify(event.payload)
+        );
+
+        // Gọi logic ứng dụng tại đây.
+        window.handleTikTokEvent?.(event);
+      });
+
+      source.onerror = () => {
+        statusElement.textContent = "Mất kết nối; EventSource đang tự kết nối lại...";
+      };
+    });
+
+    disconnectButton.addEventListener("click", disconnect);
+  </script>
+</body>
+</html>
