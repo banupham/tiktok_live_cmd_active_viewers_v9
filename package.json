@@ -1,0 +1,13 @@
+{
+  "name": "tiktok-live-cmd-active-viewers-v9",
+  "version": "9.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node a.mjs",
+    "sync-profile": "node sync_profile.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.55.0"
+  }
+}
