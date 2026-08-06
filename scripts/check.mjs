@@ -14,6 +14,7 @@ const files = [
   "src/transports/http_gateway.mjs",
   "src/transports/webhook_dispatcher.mjs",
   "examples/node_sse_client.mjs",
+  "examples/node_webhook_receiver.mjs",
 ];
 
 let failed = false;
