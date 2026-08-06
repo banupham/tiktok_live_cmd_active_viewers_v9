@@ -5,6 +5,7 @@ import os
 import queue
 import threading
 from collections import deque
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -17,11 +18,33 @@ MAX_BODY_BYTES = int(os.environ.get("GAME_EVENT_MAX_BODY", str(2 * 1024 * 1024))
 MAX_QUEUE_SIZE = int(os.environ.get("GAME_EVENT_QUEUE_SIZE", "5000"))
 MAX_REMEMBERED_EVENT_IDS = int(os.environ.get("GAME_EVENT_ID_CACHE", "10000"))
 
+SUPPORTED_EVENT_TYPES = {
+    "middleware_status",
+    "join",
+    "comment",
+    "follow",
+    "like",
+    "gift",
+}
+
 EVENT_QUEUE: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=MAX_QUEUE_SIZE)
 
 _event_ids: set[str] = set()
 _event_id_order: deque[str] = deque()
 _event_id_lock = threading.Lock()
+
+_connection_lock = threading.Lock()
+_connection_state: dict[str, Any] = {
+    "connected": False,
+    "lastWebhookAt": None,
+    "lastClientIp": None,
+    "lastEventType": None,
+    "receivedRequests": 0,
+}
+
+
+def time_text() -> str:
+    return datetime.now().strftime("%H:%M:%S")
 
 
 def register_event_id(event_id: str) -> bool:
@@ -56,9 +79,45 @@ def unregister_event_id(event_id: str) -> None:
             pass
 
 
+def mark_webhook_received(
+    client_ip: str,
+    event_type: str,
+    event_id: str,
+) -> None:
+    with _connection_lock:
+        _connection_state["connected"] = True
+        _connection_state["lastWebhookAt"] = datetime.now().isoformat(timespec="seconds")
+        _connection_state["lastClientIp"] = client_ip
+        _connection_state["lastEventType"] = event_type
+        _connection_state["receivedRequests"] += 1
+        request_number = _connection_state["receivedRequests"]
+
+    event_id_text = event_id or "không có"
+    print(
+        f"[{time_text()}] [WEBHOOK NHẬN #{request_number}] "
+        f"từ {client_ip} | type={event_type} | eventId={event_id_text}",
+        flush=True,
+    )
+
+
+def on_middleware_status(event: dict[str, Any]) -> None:
+    payload = event.get("payload") or {}
+
+    print("")
+    print("============================================================")
+    print("[KẾT NỐI OK] TIKTOK LIVE EVENT MIDDLEWARE → SERVER GAME")
+    print(f"[THỜI GIAN] {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    print(f"[TRẠNG THÁI] {payload.get('status', 'connected')}")
+    print(f"[THÔNG BÁO] {payload.get('message', 'Đã nhận được webhook')}")
+    if payload.get("webhookUrl"):
+        print(f"[ĐỊA CHỈ] {payload.get('webhookUrl')}")
+    print("============================================================")
+    print("")
+
+
 def on_join(event: dict[str, Any]) -> None:
     user = event.get("user") or {}
-    print(f"[JOIN] {user.get('displayName')}")
+    print(f"[JOIN] {user.get('displayName')}", flush=True)
 
     # Ví dụ tích hợp game:
     # game.ensure_player(user)
@@ -69,8 +128,8 @@ def on_comment(event: dict[str, Any]) -> None:
     payload = event.get("payload") or {}
 
     print(
-        f"[COMMENT] {user.get('displayName')}: "
-        f"{payload.get('text')}"
+        f"[COMMENT] {user.get('displayName')}: {payload.get('text')}",
+        flush=True,
     )
 
     # Ví dụ tích hợp game:
@@ -82,7 +141,7 @@ def on_comment(event: dict[str, Any]) -> None:
 
 def on_follow(event: dict[str, Any]) -> None:
     user = event.get("user") or {}
-    print(f"[FOLLOW] {user.get('displayName')}")
+    print(f"[FOLLOW] {user.get('displayName')}", flush=True)
 
     # Ví dụ tích hợp game:
     # game.reward_follow(user.get("id"))
@@ -94,7 +153,10 @@ def on_like(event: dict[str, Any]) -> None:
 
     # LIKE hiện là hoạt động tim ẩn danh.
     # Mỗi tim DOM bắt được tạo một event riêng với count=1.
-    print(f"[LIKE] x{count} | source={payload.get('source')}")
+    print(
+        f"[LIKE] x{count} | source={payload.get('source')}",
+        flush=True,
+    )
 
     # Ví dụ tích hợp game:
     # game.add_global_energy(count)
@@ -107,7 +169,8 @@ def on_gift(event: dict[str, Any]) -> None:
     print(
         f"[GIFT] {user.get('displayName')} gửi "
         f"{payload.get('giftName')} x{payload.get('count', 1)} "
-        f"| key={payload.get('giftKey')}"
+        f"| key={payload.get('giftKey')}",
+        flush=True,
     )
 
     # Ví dụ tích hợp game:
@@ -128,6 +191,7 @@ def handle_tiktok_event(event: dict[str, Any]) -> None:
     event_type = str(event.get("eventType") or "").lower()
 
     handlers = {
+        "middleware_status": on_middleware_status,
         "join": on_join,
         "comment": on_comment,
         "follow": on_follow,
@@ -137,7 +201,7 @@ def handle_tiktok_event(event: dict[str, Any]) -> None:
 
     handler = handlers.get(event_type)
     if handler is None:
-        print(f"[BỎ QUA] eventType không hỗ trợ: {event_type!r}")
+        print(f"[BỎ QUA] eventType không hỗ trợ: {event_type!r}", flush=True)
         return
 
     handler(event)
@@ -151,16 +215,16 @@ def event_worker() -> None:
         try:
             handle_tiktok_event(event)
         except Exception as error:  # noqa: BLE001 - server mẫu phải tiếp tục chạy
-            print(f"[GAME ERROR] {error}")
+            print(f"[GAME ERROR] {error}", flush=True)
         finally:
             EVENT_QUEUE.task_done()
 
 
 class GameEventHandler(BaseHTTPRequestHandler):
-    server_version = "TikTokGameEventServer/1.0"
+    server_version = "TikTokGameEventServer/1.1"
 
     def log_message(self, format: str, *args: object) -> None:
-        # Tắt access log mặc định để chỉ nhìn thấy event.
+        # Tắt access log mặc định; dùng log webhook rõ ràng ở mark_webhook_received().
         return
 
     def send_json(self, status: int, payload: dict[str, Any]) -> None:
@@ -175,6 +239,9 @@ class GameEventHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/health":
+            with _connection_lock:
+                connection = dict(_connection_state)
+
             self.send_json(
                 200,
                 {
@@ -183,6 +250,7 @@ class GameEventHandler(BaseHTTPRequestHandler):
                     "eventPath": EVENT_PATH,
                     "queueSize": EVENT_QUEUE.qsize(),
                     "queueCapacity": MAX_QUEUE_SIZE,
+                    "connection": connection,
                 },
             )
             return
@@ -220,7 +288,7 @@ class GameEventHandler(BaseHTTPRequestHandler):
             return
 
         event_type = str(event.get("eventType") or "").lower()
-        if event_type not in {"join", "comment", "follow", "like", "gift"}:
+        if event_type not in SUPPORTED_EVENT_TYPES:
             self.send_json(
                 400,
                 {
@@ -231,8 +299,15 @@ class GameEventHandler(BaseHTTPRequestHandler):
             return
 
         event_id = str(event.get("eventId") or "")
+        client_ip = self.client_address[0] if self.client_address else "không rõ"
+
+        mark_webhook_received(client_ip, event_type, event_id)
 
         if not register_event_id(event_id):
+            print(
+                f"[{time_text()}] [WEBHOOK TRÙNG] eventId={event_id}",
+                flush=True,
+            )
             # Webhook có thể retry khi timeout. Event trùng vẫn trả 200 để
             # middleware biết rằng server đã nhận event này trước đó.
             self.send_json(
@@ -289,8 +364,11 @@ def main() -> None:
     print(f"Nhận event : http://{HOST}:{PORT}{EVENT_PATH}")
     print(f"Health     : http://{HOST}:{PORT}/health")
     print("")
-    print("Server đang đứng chờ. Middleware sẽ tự POST event tới đây.")
-    print("Game không cần gọi /api/recent hoặc polling middleware.")
+    print("[ĐANG CHỜ] Chưa có middleware kết nối.")
+    print("Hãy mở CMD khác và chạy:")
+    print("  start_middleware_to_game.bat ten_tiktok")
+    print("")
+    print("Khi hai bên thông nhau, màn hình này sẽ hiện [KẾT NỐI OK].")
     print("Nhấn Ctrl + C để dừng.")
 
     try:
