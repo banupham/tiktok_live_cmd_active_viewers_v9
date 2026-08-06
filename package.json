@@ -9,7 +9,8 @@
     "check": "node scripts/check.mjs",
     "test:smoke": "node scripts/smoke_test.mjs",
     "sync-profile": "node sync_profile.mjs",
-    "example:sse": "node examples/node_sse_client.mjs"
+    "example:sse": "node examples/node_sse_client.mjs",
+    "example:webhook": "node examples/node_webhook_receiver.mjs"
   },
   "dependencies": {
     "playwright": "^1.55.0"
