@@ -15,12 +15,14 @@ def build_health_url(webhook_url: str) -> str:
 
 def check_health(webhook_url: str, timeout: float) -> bool:
     health_url = build_health_url(webhook_url)
+    expected_token = os.environ.get("GAME_EVENT_INSTANCE_TOKEN", "").strip()
+
     request = Request(
         health_url,
         method="GET",
         headers={
             "Accept": "application/json",
-            "User-Agent": "tiktok-live-event-middleware-handshake/3.0",
+            "User-Agent": "tiktok-live-event-middleware-handshake/4.0",
             "X-TikTok-Middleware-Handshake": "1",
             "X-TikTok-Webhook-Url": webhook_url,
         },
@@ -31,25 +33,17 @@ def check_health(webhook_url: str, timeout: float) -> bool:
             response_body = response.read().decode("utf-8", errors="replace")
 
             if not 200 <= response.status < 300:
-                print(
-                    f"[HANDSHAKE] THẤT BẠI {health_url}: "
-                    f"HTTP {response.status}"
-                )
+                print(f"[HANDSHAKE] THẤT BẠI {health_url}: HTTP {response.status}")
                 return False
 
             try:
                 payload = json.loads(response_body)
             except json.JSONDecodeError:
-                print(
-                    f"[HANDSHAKE] THẤT BẠI {health_url}: "
-                    "server không trả JSON hợp lệ"
-                )
+                print(f"[HANDSHAKE] THẤT BẠI {health_url}: server không trả JSON hợp lệ")
                 return False
 
             if payload.get("ok") is not True:
-                print(
-                    f"[HANDSHAKE] THẤT BẠI {health_url}: server trả ok != true"
-                )
+                print(f"[HANDSHAKE] THẤT BẠI {health_url}: server trả ok != true")
                 return False
 
             if payload.get("service") != "game-event-server":
@@ -60,22 +54,26 @@ def check_health(webhook_url: str, timeout: float) -> bool:
                 return False
 
             instance_id = str(payload.get("instanceId") or "").strip()
+            actual_token = str(payload.get("instanceToken") or "").strip()
             pid = payload.get("pid")
             version = str(payload.get("version") or "không rõ")
             event_path = str(payload.get("eventPath") or "")
 
             if not instance_id:
-                print(
-                    f"[HANDSHAKE] THẤT BẠI {health_url}: "
-                    "server quá cũ, chưa có instanceId"
-                )
-                print("[HANDSHAKE] Hãy git pull và khởi động lại game_event_server.py.")
+                print(f"[HANDSHAKE] THẤT BẠI {health_url}: server quá cũ")
+                return False
+
+            if expected_token and actual_token != expected_token:
+                print("[HANDSHAKE] THẤT BẠI: đang kết nối nhầm process server cũ.")
+                print(f"[HANDSHAKE] Token cần : {expected_token}")
+                print(f"[HANDSHAKE] Token nhận: {actual_token or 'không có'}")
+                print(f"[HANDSHAKE] PID nhầm  : {pid}")
                 return False
 
             if event_path != urlsplit(webhook_url).path:
                 print(
-                    f"[HANDSHAKE] THẤT BẠI: eventPath của server là "
-                    f"{event_path!r}, nhưng webhook dùng {urlsplit(webhook_url).path!r}"
+                    f"[HANDSHAKE] THẤT BẠI: eventPath server={event_path!r}, "
+                    f"webhook={urlsplit(webhook_url).path!r}"
                 )
                 return False
 
@@ -83,15 +81,13 @@ def check_health(webhook_url: str, timeout: float) -> bool:
             print(f"[HANDSHAKE] Server version : {version}")
             print(f"[HANDSHAKE] Server instance: {instance_id}")
             print(f"[HANDSHAKE] Server PID     : {pid}")
+            print(f"[HANDSHAKE] Session token  : {actual_token or 'không cấu hình'}")
             print(f"[HANDSHAKE] Health         : {health_url}")
             return True
 
     except HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
-        print(
-            f"[HANDSHAKE] THẤT BẠI {health_url}: "
-            f"HTTP {error.code} {detail}"
-        )
+        print(f"[HANDSHAKE] THẤT BẠI {health_url}: HTTP {error.code} {detail}")
     except URLError as error:
         print(f"[HANDSHAKE] THẤT BẠI {health_url}: {error.reason}")
     except TimeoutError:
