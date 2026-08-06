@@ -9,7 +9,6 @@ from urllib.request import Request, urlopen
 
 
 def build_health_url(webhook_url: str) -> str:
-    """Đổi URL webhook thành endpoint /health trên cùng server."""
     parts = urlsplit(webhook_url)
     return urlunsplit((parts.scheme, parts.netloc, "/health", "", ""))
 
@@ -21,7 +20,7 @@ def check_health(webhook_url: str, timeout: float) -> bool:
         method="GET",
         headers={
             "Accept": "application/json",
-            "User-Agent": "tiktok-live-event-middleware-handshake/2.0",
+            "User-Agent": "tiktok-live-event-middleware-handshake/3.0",
             "X-TikTok-Middleware-Handshake": "1",
             "X-TikTok-Webhook-Url": webhook_url,
         },
@@ -38,21 +37,53 @@ def check_health(webhook_url: str, timeout: float) -> bool:
                 )
                 return False
 
-            if response_body:
-                try:
-                    payload = json.loads(response_body)
-                except json.JSONDecodeError:
-                    payload = None
+            try:
+                payload = json.loads(response_body)
+            except json.JSONDecodeError:
+                print(
+                    f"[HANDSHAKE] THẤT BẠI {health_url}: "
+                    "server không trả JSON hợp lệ"
+                )
+                return False
 
-                if isinstance(payload, dict) and payload.get("ok") is False:
-                    print(
-                        f"[HANDSHAKE] THẤT BẠI {health_url}: "
-                        f"server trả về ok=false"
-                    )
-                    return False
+            if payload.get("ok") is not True:
+                print(
+                    f"[HANDSHAKE] THẤT BẠI {health_url}: server trả ok != true"
+                )
+                return False
+
+            if payload.get("service") != "game-event-server":
+                print(
+                    f"[HANDSHAKE] THẤT BẠI {health_url}: "
+                    f"sai service {payload.get('service')!r}"
+                )
+                return False
+
+            instance_id = str(payload.get("instanceId") or "").strip()
+            pid = payload.get("pid")
+            version = str(payload.get("version") or "không rõ")
+            event_path = str(payload.get("eventPath") or "")
+
+            if not instance_id:
+                print(
+                    f"[HANDSHAKE] THẤT BẠI {health_url}: "
+                    "server quá cũ, chưa có instanceId"
+                )
+                print("[HANDSHAKE] Hãy git pull và khởi động lại game_event_server.py.")
+                return False
+
+            if event_path != urlsplit(webhook_url).path:
+                print(
+                    f"[HANDSHAKE] THẤT BẠI: eventPath của server là "
+                    f"{event_path!r}, nhưng webhook dùng {urlsplit(webhook_url).path!r}"
+                )
+                return False
 
             print(f"[HANDSHAKE] KẾT NỐI OK: {webhook_url}")
-            print(f"[HANDSHAKE] Health phản hồi: {health_url}")
+            print(f"[HANDSHAKE] Server version : {version}")
+            print(f"[HANDSHAKE] Server instance: {instance_id}")
+            print(f"[HANDSHAKE] Server PID     : {pid}")
+            print(f"[HANDSHAKE] Health         : {health_url}")
             return True
 
     except HTTPError as error:
@@ -85,14 +116,14 @@ def main() -> int:
     timeout_ms = max(250, int(os.environ.get("WEBHOOK_TIMEOUT_MS", "3000")))
     timeout = timeout_ms / 1000
 
-    print("[HANDSHAKE] Đang kiểm tra GET /health của server game...")
+    print("[HANDSHAKE] Đang xác nhận đúng process game server...")
     results = [check_health(url, timeout) for url in urls]
 
     if all(results):
         print("[HANDSHAKE] TẤT CẢ WEBHOOK ĐÃ THÔNG NHAU.")
         return 0
 
-    print("[HANDSHAKE] Có webhook chưa kết nối được. Middleware chưa được khởi động.")
+    print("[HANDSHAKE] Có webhook chưa kết nối đúng server. Middleware chưa khởi động.")
     return 2
 
 
