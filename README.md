@@ -18,6 +18,58 @@ Middleware hiện hỗ trợ:
 
 Middleware **không phát event `leave` và không suy đoán người dùng đã rời LIVE**. Ứng dụng nhận tự quản lý timeout, trạng thái online hoặc logic rời phòng.
 
+LIKE được lấy từ hiệu ứng tim trong DOM:
+
+```text
+Mỗi tim bắt được → một event LIKE → payload.count = 1
+```
+
+LIKE không gắn với người dùng cụ thể.
+
+## Nhận tự động trong server game
+
+Cách nhanh nhất trên cùng một máy:
+
+### CMD thứ nhất
+
+```cmd
+python examples\game_event_server.py
+```
+
+### CMD thứ hai
+
+```cmd
+start_middleware_to_game.bat ten_tiktok
+```
+
+Luồng hoạt động:
+
+```text
+TikTok LIVE
+    ↓
+Middleware chuẩn hóa event
+    ↓ tự động POST
+http://127.0.0.1:9000/tiktok-event
+    ↓
+Queue của server game
+    ↓
+Hàm xử lý game tự chạy
+```
+
+Game không phải polling và không phải gọi API hỏi xem có event mới hay chưa.
+
+Server mẫu đầy đủ:
+
+```text
+examples/game_event_server.py
+```
+
+Hướng dẫn đầy đủ, mã nguồn, cấu hình LAN và schema event:
+
+```text
+KET_NOI_PUSH.md
+```
+
 ## CAPTCHA
 
 Khi TikTok hiện CAPTCHA, middleware sẽ tự:
@@ -31,7 +83,7 @@ Khi TikTok hiện CAPTCHA, middleware sẽ tự:
 
 Middleware không tự giải CAPTCHA.
 
-## Chạy nhanh trên Windows
+## Chạy middleware thông thường
 
 ```cmd
 npm install
@@ -55,7 +107,7 @@ npm run check
 npm run test:smoke
 ```
 
-## Nhận event tự động bằng webhook
+## Nhận event tự động bằng webhook Node.js
 
 CMD thứ nhất:
 
@@ -91,30 +143,33 @@ examples/browser_sse_client.html
 ## Tài liệu
 
 - [HUONG_DAN_TICH_HOP.md](HUONG_DAN_TICH_HOP.md): cài đặt, schema và API tổng thể.
-- [KET_NOI_PUSH.md](KET_NOI_PUSH.md): webhook, SSE và code mẫu nhận event tự động.
+- [KET_NOI_PUSH.md](KET_NOI_PUSH.md): webhook nội bộ, `game_event_server.py`, queue, SSE và cách nhận event tự động.
 
 ## Cấu trúc
 
 ```text
 .
-├── a.mjs                         file chạy middleware
+├── a.mjs
+├── start_middleware_to_game.bat
 ├── src/
 │   ├── collector/
-│   │   └── dom_collector.mjs     đọc DOM TikTok LIVE
+│   │   ├── dom_collector.mjs
+│   │   └── like_activity_collector.mjs
 │   ├── core/
-│   │   ├── event_normalizer.mjs  chuẩn hóa schema JSON
-│   │   └── event_bus.mjs         phân phối event nội bộ
+│   │   ├── event_normalizer.mjs
+│   │   └── event_bus.mjs
 │   ├── transports/
-│   │   ├── http_gateway.mjs      API SSE/health/recent/schema
-│   │   └── webhook_dispatcher.mjs gửi webhook
+│   │   ├── http_gateway.mjs
+│   │   └── webhook_dispatcher.mjs
 │   ├── storage/
-│   │   └── jsonl_writer.mjs      ghi JSONL
-│   └── index.mjs                 export module dùng lại
+│   │   └── jsonl_writer.mjs
+│   └── index.mjs
 ├── examples/
-│   ├── node_sse_client.mjs
+│   ├── game_event_server.py
+│   ├── python_webhook_receiver.py
 │   ├── node_webhook_receiver.mjs
-│   ├── browser_sse_client.html
-│   └── python_webhook_receiver.py
+│   ├── node_sse_client.mjs
+│   └── browser_sse_client.html
 ├── scripts/
 │   ├── check.mjs
 │   └── smoke_test.mjs
@@ -130,10 +185,10 @@ TikTok LIVE DOM
 TikTokEventNormalizer
       ↓ canonical event
 EventBus
+      ├── webhook tự POST
       ├── SSE clients
       ├── recent-event API
-      ├── webhook URLs
       └── JSONL log
 ```
 
-Luật game không được đặt trong middleware. Game chỉ nhận JSON rồi tự ánh xạ `comment`, `gift`, `follow`, `like`, `join` thành hành động riêng.
+Luật game không đặt trong middleware. Game nhận JSON rồi tự ánh xạ `comment`, `gift`, `follow`, `like`, `join` thành hành động riêng.
