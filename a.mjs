@@ -39,6 +39,10 @@ const includeRaw = process.env.INCLUDE_RAW !== "0";
 const apiHost = process.env.API_HOST?.trim() || "127.0.0.1";
 const apiPort = Math.max(1, Number(process.env.API_PORT || 8787));
 const maxRecent = Math.max(1, Number(process.env.MAX_RECENT_EVENTS || 500));
+const captchaCheckMs = Math.max(
+  1000,
+  Number(process.env.CAPTCHA_CHECK_MS || 2000)
+);
 const webhookUrls = String(process.env.WEBHOOK_URLS || "")
   .split(",")
   .map(value => value.trim())
@@ -92,6 +96,10 @@ let stopping = false;
 let collectorInstalled = false;
 let eventCount = 0;
 let reinjectTimer = null;
+let challengeTimer = null;
+let challengeActive = false;
+let challengeCheckRunning = false;
+let challengeDetectedAt = null;
 
 function formatEvent(event) {
   const time = new Date(event.timestamp).toLocaleTimeString("vi-VN");
@@ -115,6 +123,8 @@ function formatEvent(event) {
 }
 
 function receiveRawEvent(rawEvent) {
+  if (challengeActive) return null;
+
   const event = normalizer.normalize(rawEvent);
   if (!event) return null;
 
@@ -139,16 +149,17 @@ function isBenignWasmError(message) {
   );
 }
 
-async function positionChromeWindow() {
+async function positionChromeWindow(forceVisible = false) {
   if (!page || page.isClosed() || !context) return;
 
   try {
     const session = await context.newCDPSession(page);
     const { windowId } = await session.send("Browser.getWindowForTarget");
+    const visible = forceVisible || showBrowser;
 
     await session.send("Browser.setWindowBounds", {
       windowId,
-      bounds: showBrowser
+      bounds: visible
         ? {
             windowState: "normal",
             left: 80,
@@ -173,8 +184,90 @@ async function positionChromeWindow() {
   }
 }
 
-async function injectCollector() {
+async function detectTikTokChallenge() {
+  if (!page || page.isClosed()) {
+    return { detected: false, reason: null };
+  }
+
+  try {
+    return await page.evaluate(() => {
+      const clean = value =>
+        String(value ?? "")
+          .replace(/\s+/g, " ")
+          .trim();
+
+      const isVisible = element => {
+        if (!(element instanceof Element)) return false;
+
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number(style.opacity || 1) > 0
+        );
+      };
+
+      const matchesChallengeText = value => {
+        const text = clean(value);
+        return (
+          /chọn\s*2\s*đối\s*tượng/i.test(text) ||
+          /hình\s*dạng\s*giống\s*nhau/i.test(text) ||
+          /hoàn\s*tất\s*xác\s*minh/i.test(text) ||
+          /security\s*(?:check|verification)/i.test(text) ||
+          /verify\s*(?:to\s*continue|you\s*are\s*human)/i.test(text) ||
+          /select\s*2\s*objects/i.test(text)
+        );
+      };
+
+      const selectors = [
+        'iframe[src*="captcha" i]',
+        'iframe[src*="verify" i]',
+        '[id*="captcha" i]',
+        '[class*="captcha" i]',
+        '[data-e2e*="captcha" i]',
+        '[role="dialog"]',
+      ];
+
+      for (const selector of selectors) {
+        for (const element of document.querySelectorAll(selector)) {
+          if (!isVisible(element)) continue;
+
+          const text = clean(element.innerText || element.textContent || "");
+          const structuralCaptcha = /captcha|verify/i.test(
+            `${element.id} ${element.className} ${element.getAttribute("src") || ""}`
+          );
+
+          if (structuralCaptcha || matchesChallengeText(text)) {
+            return {
+              detected: true,
+              reason: text.slice(0, 180) || selector,
+            };
+          }
+        }
+      }
+
+      const bodyText = clean(document.body?.innerText || "");
+      if (matchesChallengeText(bodyText)) {
+        return {
+          detected: true,
+          reason: bodyText.slice(0, 180),
+        };
+      }
+
+      return { detected: false, reason: null };
+    });
+  } catch {
+    return { detected: false, reason: null };
+  }
+}
+
+async function injectCollector({ allowDuringChallenge = false } = {}) {
   if (!page || page.isClosed()) return;
+  if (challengeActive && !allowDuringChallenge) return;
 
   await page.waitForSelector("body", { timeout: 30_000 });
   await page.evaluate(installTikTokLiveDomCollector, {
@@ -189,8 +282,97 @@ async function injectCollector() {
   collectorInstalled = true;
 }
 
+async function enterChallengeMode(details = {}) {
+  if (challengeActive || stopping) return;
+
+  challengeActive = true;
+  challengeDetectedAt = Date.now();
+  collectorInstalled = false;
+  clearTimeout(reinjectTimer);
+
+  console.log("");
+  console.log("====================================================");
+  console.log("[CAPTCHA] TikTok yêu cầu xác minh người thật.");
+  console.log("[CAPTCHA] Collector đã tạm dừng, không phát event.");
+  console.log("[CAPTCHA] Chrome đã được đưa ra màn hình.");
+  console.log("[CAPTCHA] Hãy tự chọn đáp án và bấm Xác nhận.");
+  console.log("[CAPTCHA] Middleware sẽ tự nối lại sau khi popup biến mất.");
+  if (details.reason) {
+    console.log(`[CAPTCHA] Dấu hiệu: ${details.reason}`);
+  }
+  console.log("====================================================");
+  console.log("");
+
+  process.stdout.write("\x07");
+
+  await page
+    ?.evaluate(() => window.TikTokLiveDOM?.stop?.())
+    .catch(() => {});
+
+  await positionChromeWindow(true);
+}
+
+async function leaveChallengeMode() {
+  if (!challengeActive || stopping || !page || page.isClosed()) return;
+
+  console.log("[CAPTCHA] Popup đã biến mất. Đang khôi phục collector...");
+  await page.waitForTimeout(3000);
+
+  try {
+    await injectCollector({ allowDuringChallenge: true });
+    challengeActive = false;
+    challengeDetectedAt = null;
+
+    if (!showBrowser) {
+      await positionChromeWindow(false);
+    }
+
+    console.log("[CAPTCHA] Collector đã hoạt động trở lại.");
+  } catch (error) {
+    console.warn(
+      `[CAPTCHA] Chưa khôi phục được collector, sẽ thử lại: ${
+        error?.message || error
+      }`
+    );
+  }
+}
+
+function startChallengeMonitor() {
+  if (challengeTimer) return;
+
+  challengeTimer = setInterval(async () => {
+    if (
+      stopping ||
+      challengeCheckRunning ||
+      !page ||
+      page.isClosed()
+    ) {
+      return;
+    }
+
+    challengeCheckRunning = true;
+
+    try {
+      const details = await detectTikTokChallenge();
+
+      if (details.detected && !challengeActive) {
+        await enterChallengeMode(details);
+        return;
+      }
+
+      if (!details.detected && challengeActive) {
+        await leaveChallengeMode();
+      }
+    } finally {
+      challengeCheckRunning = false;
+    }
+  }, captchaCheckMs);
+
+  challengeTimer.unref?.();
+}
+
 function scheduleCollectorReinject() {
-  if (!collectorInstalled || stopping) return;
+  if (!collectorInstalled || stopping || challengeActive) return;
   clearTimeout(reinjectTimer);
 
   reinjectTimer = setTimeout(() => {
@@ -288,7 +470,13 @@ async function startBrowser() {
 
   await positionChromeWindow();
   await page.waitForTimeout(8000);
-  await injectCollector();
+
+  const challenge = await detectTikTokChallenge();
+  if (challenge.detected) {
+    await enterChallengeMode(challenge);
+  } else {
+    await injectCollector();
+  }
 }
 
 async function start() {
@@ -306,9 +494,11 @@ async function start() {
   console.log(`Event log  : ${eventLogPath || "đã tắt"}`);
   console.log("Sự kiện    : JOIN / COMMENT / FOLLOW / LIKE / GIFT");
   console.log("Không phát : LEAVE / người dùng rời LIVE");
+  console.log(`CAPTCHA     : kiểm tra mỗi ${captchaCheckMs} ms, chờ người dùng xác minh`);
   console.log("");
 
   await startBrowser();
+  startChallengeMonitor();
 
   console.log("Middleware đã sẵn sàng. Nhấn Ctrl + C để dừng.");
 }
@@ -318,7 +508,17 @@ async function stop() {
   stopping = true;
   clearTimeout(reinjectTimer);
 
+  if (challengeTimer) {
+    clearInterval(challengeTimer);
+    challengeTimer = null;
+  }
+
   console.log(`\nĐang dừng middleware... Tổng event: ${eventCount}`);
+
+  if (challengeActive && challengeDetectedAt) {
+    const seconds = Math.floor((Date.now() - challengeDetectedAt) / 1000);
+    console.log(`[CAPTCHA] Đã chờ xác minh ${seconds} giây trước khi dừng.`);
+  }
 
   try {
     if (collectorInstalled && page && !page.isClosed()) {
