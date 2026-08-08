@@ -7,18 +7,30 @@ const normalizer = new TikTokEventNormalizer({
   liveUrl: "https://www.tiktok.com/@example/live",
 });
 
+const ignoredLegacyComment = normalizer.normalize({
+  type: "comment",
+  sender: "Dương",
+  uniqueId: "duong123",
+  comment: "đánh",
+  raw: "Dương Hạng 1 đánh",
+  timestamp: 122,
+});
+assert.equal(ignoredLegacyComment, null);
+
 const comment = normalizer.normalize({
   type: "comment",
   sender: "Dương",
   uniqueId: "duong123",
   comment: "đánh",
-  raw: "Dương đánh",
+  raw: "đánh",
+  source: "direct-comment-elements",
   timestamp: 123,
 });
 
 assert.equal(comment.eventType, "comment");
 assert.equal(comment.payload.normalizedText, "ĐÁNH");
 assert.equal(comment.user.id, "duong123");
+assert.equal(comment.raw.text, "đánh");
 
 const incompleteGift = normalizer.normalize({
   type: "gift",
