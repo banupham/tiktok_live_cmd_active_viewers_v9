@@ -94,6 +94,13 @@ export class TikTokEventNormalizer {
     if (!SUPPORTED_EVENT_SET.has(eventType)) return null;
 
     if (
+      eventType === "comment" &&
+      cleanText(rawEvent?.source) !== "direct-comment-elements"
+    ) {
+      return null;
+    }
+
+    if (
       eventType === "like" &&
       cleanText(rawEvent?.source) !== "heart-animation"
     ) {
