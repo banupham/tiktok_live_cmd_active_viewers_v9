@@ -4,27 +4,36 @@ import {
 import {
   installTikTokLikeActivityCollector,
 } from "./collector/like_activity_collector.mjs";
+import {
+  installTikTokDirectCommentCollector,
+} from "./collector/direct_comment_collector.mjs";
 
 /*
  * a.mjs truyền hàm này qua page.evaluate(), nên hàm phải tự chứa hoàn toàn.
- * Tạo một hàm mới có source của cả collector cũ và collector tim được nhúng
- * trực tiếp vào thân hàm; không phụ thuộc closure khi chạy trong trang TikTok.
+ * Tạo một hàm mới có source của các collector được nhúng trực tiếp vào thân hàm;
+ * không phụ thuộc closure khi chạy trong trang TikTok.
  */
 const combinedCollectorSource = `
   return function installTikTokLiveDomCollector(userConfig = {}) {
     const installBaseCollector = ${installBaseTikTokLiveDomCollector.toString()};
     const installHeartCollector = ${installTikTokLikeActivityCollector.toString()};
+    const installDirectCommentCollector = ${installTikTokDirectCommentCollector.toString()};
 
     installBaseCollector(userConfig);
+    installDirectCommentCollector(userConfig);
     installHeartCollector(userConfig);
 
     const stopBase = window.TikTokLiveDOM?.stop?.bind(window.TikTokLiveDOM);
+    const stopDirectComments = window.TikTokDirectCommentDOM?.stop?.bind(
+      window.TikTokDirectCommentDOM
+    );
     const stopHearts = window.TikTokLikeActivityDOM?.stop?.bind(
       window.TikTokLikeActivityDOM
     );
 
     if (window.TikTokLiveDOM) {
       window.TikTokLiveDOM.stop = () => {
+        stopDirectComments?.();
         stopHearts?.();
         stopBase?.();
       };
@@ -37,6 +46,7 @@ export const installTikTokLiveDomCollector = new Function(
 )();
 
 export { installTikTokLikeActivityCollector };
+export { installTikTokDirectCommentCollector };
 export {
   SUPPORTED_EVENT_TYPES,
   TikTokEventNormalizer,
