@@ -8,6 +8,7 @@ const files = [
   "sync_profile.mjs",
   "src/index.mjs",
   "src/collector/dom_collector.mjs",
+  "src/collector/direct_comment_collector.mjs",
   "src/collector/like_activity_collector.mjs",
   "src/core/event_bus.mjs",
   "src/core/event_normalizer.mjs",
