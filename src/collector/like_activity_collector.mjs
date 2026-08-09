@@ -1,8 +1,11 @@
 /**
  * Bắt hiệu ứng tim LIKE trong DOM TikTok LIVE.
  *
- * Không xác định người dùng. Mỗi phần tử tim bắt được phát ngay một event
- * `like` với `count: 1`; không gom theo thời gian.
+ * Không xác định người dùng. Mỗi phần tử tim bay bắt được phát một event
+ * `like` với `source: heart-animation` và `count: 1`.
+ *
+ * Các row event có cấu trúc (comment/join/social/user-like/gift) bị loại trừ
+ * hoàn toàn để icon SVG của chúng không bị nhận nhầm thành tim bay.
  *
  * Hàm phải tự chứa vì được truyền vào page.evaluate().
  */
@@ -29,6 +32,13 @@ export function installTikTokLikeActivityCollector(userConfig = {}) {
   const NEGATIVE_PATTERN =
     /gift|share|comment|follow|avatar|captcha|verify|sticker|profile/i;
 
+  const STRUCTURED_EVENT_SELECTOR = [
+    '[data-e2e="chat-message"]',
+    '[data-e2e="enter-message"]',
+    '[data-e2e="social-message"]',
+    "div.relative.flex.py-4.px-12.P4-Regular.text-UIText1",
+  ].join(",");
+
   function clean(value) {
     return String(value ?? "")
       .replace(/\u200B/g, "")
@@ -39,6 +49,11 @@ export function installTikTokLikeActivityCollector(userConfig = {}) {
   function getElement(node) {
     if (node instanceof Element) return node;
     return node?.parentElement instanceof Element ? node.parentElement : null;
+  }
+
+  function isInsideStructuredEventRow(element) {
+    if (!(element instanceof Element)) return false;
+    return Boolean(element.closest(STRUCTURED_EVENT_SELECTOR));
   }
 
   function getMeta(element) {
@@ -77,6 +92,8 @@ export function installTikTokLikeActivityCollector(userConfig = {}) {
   }
 
   function isSemanticHeart(element) {
+    if (isInsideStructuredEventRow(element)) return false;
+
     const meta = getMeta(element);
     if (!meta || NEGATIVE_PATTERN.test(meta)) return false;
     return POSITIVE_PATTERN.test(meta);
@@ -84,6 +101,7 @@ export function installTikTokLikeActivityCollector(userConfig = {}) {
 
   function isAnimatedGraphic(element) {
     if (!(element instanceof Element) || !isVisible(element)) return false;
+    if (isInsideStructuredEventRow(element)) return false;
 
     const rect = element.getBoundingClientRect();
     if (
@@ -113,10 +131,13 @@ export function installTikTokLikeActivityCollector(userConfig = {}) {
 
   function findHeartRoot(element) {
     if (!(element instanceof Element)) return null;
+    if (isInsideStructuredEventRow(element)) return null;
 
     let current = element;
 
     for (let depth = 0; current && depth < 6; depth += 1) {
+      if (isInsideStructuredEventRow(current)) return null;
+
       if (isSemanticHeart(current) || isAnimatedGraphic(current)) {
         return current;
       }
@@ -131,6 +152,7 @@ export function installTikTokLikeActivityCollector(userConfig = {}) {
     const now = Date.now();
 
     if (now - state.startedAt < CONFIG.likeWarmupMs) return;
+    if (isInsideStructuredEventRow(element)) return;
 
     const previous = state.elementLastSeen.get(element) || 0;
     if (now - previous < CONFIG.likeElementDedupeMs) return;
@@ -162,6 +184,7 @@ export function installTikTokLikeActivityCollector(userConfig = {}) {
   function inspectNode(node, output) {
     const element = getElement(node);
     if (!element) return;
+    if (isInsideStructuredEventRow(element)) return;
 
     const candidates = [element];
     let scanned = 0;
@@ -217,6 +240,7 @@ export function installTikTokLikeActivityCollector(userConfig = {}) {
         running: Boolean(state.observer),
         likeCount: state.likeCount,
         mode: "heart-animation-immediate",
+        structuredRowsExcluded: true,
       };
     },
   };
@@ -228,6 +252,7 @@ export function installTikTokLikeActivityCollector(userConfig = {}) {
         mode: "heart-animation-immediate",
         countPerEvent: 1,
         anonymous: true,
+        structuredRowsExcluded: true,
       },
     });
   } catch {
