@@ -4,11 +4,13 @@ export const SUPPORTED_EVENT_TYPES = Object.freeze([
   "join",
   "comment",
   "follow",
+  "share",
   "like",
   "gift",
 ]);
 
 const SUPPORTED_EVENT_SET = new Set(SUPPORTED_EVENT_TYPES);
+const LIKE_SOURCES = new Set(["user-activity", "heart-animation"]);
 
 export function cleanText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -44,15 +46,11 @@ export function isIncompleteGiftIdentity(rawEvent) {
 
   const senderKey = sender.toLocaleLowerCase("vi");
 
-  if (
-    /^(?:đã|gửi|đã\s+gửi|sent|gift|quà)$/i.test(senderKey)
-  ) {
+  if (/^(?:đã|gửi|đã\s+gửi|sent|gift|quà)$/i.test(senderKey)) {
     return true;
   }
 
-  if (
-    /^(?:(?:đã\s+)?gửi|sent)\b/i.test(raw)
-  ) {
+  if (/^(?:(?:đã\s+)?gửi|sent)\b/i.test(raw)) {
     return true;
   }
 
@@ -89,23 +87,30 @@ export class TikTokEventNormalizer {
     };
   }
 
+  hasValidSource(eventType, rawEvent) {
+    const source = cleanText(rawEvent?.source);
+
+    switch (eventType) {
+      case "comment":
+        return source === "direct-comment-elements";
+      case "join":
+        return source === "join-message";
+      case "follow":
+      case "share":
+        return source === "social-message";
+      case "gift":
+        return source === "gift-activity";
+      case "like":
+        return LIKE_SOURCES.has(source);
+      default:
+        return false;
+    }
+  }
+
   normalize(rawEvent) {
     const eventType = cleanText(rawEvent?.type).toLowerCase();
     if (!SUPPORTED_EVENT_SET.has(eventType)) return null;
-
-    if (
-      eventType === "comment" &&
-      cleanText(rawEvent?.source) !== "direct-comment-elements"
-    ) {
-      return null;
-    }
-
-    if (
-      eventType === "like" &&
-      cleanText(rawEvent?.source) !== "heart-animation"
-    ) {
-      return null;
-    }
+    if (!this.hasValidSource(eventType, rawEvent)) return null;
 
     if (eventType === "gift" && isIncompleteGiftIdentity(rawEvent)) {
       return null;
@@ -113,11 +118,15 @@ export class TikTokEventNormalizer {
 
     const user = this.resolveUser(rawEvent);
     const payload = {};
+    const rawSource = cleanText(rawEvent?.source) || null;
 
     if (eventType === "comment") {
       const text = cleanText(rawEvent.comment);
+      if (!text) return null;
+
       payload.text = text;
       payload.normalizedText = text.toLocaleUpperCase("vi");
+      payload.source = rawSource;
     }
 
     if (eventType === "gift") {
@@ -127,6 +136,8 @@ export class TikTokEventNormalizer {
       payload.giftName = giftName;
       payload.giftKey = normalizeGiftKey(giftName) || "gift";
       payload.count = count;
+      payload.action = cleanText(rawEvent.action) || null;
+      payload.source = rawSource;
 
       if (Number.isFinite(Number(rawEvent.totalCount))) {
         payload.totalCount = Math.max(
@@ -139,13 +150,18 @@ export class TikTokEventNormalizer {
     if (eventType === "like") {
       payload.count = Math.max(1, Math.floor(Number(rawEvent.count) || 1));
       payload.action = cleanText(rawEvent.action) || null;
-      payload.source = "heart-animation";
-      payload.anonymous = true;
-      payload.suspected = true;
+      payload.source = rawSource;
+      payload.anonymous = Boolean(rawEvent.anonymous);
+      payload.suspected = Boolean(rawEvent.suspected);
     }
 
-    if (eventType === "follow" || eventType === "join") {
+    if (
+      eventType === "follow" ||
+      eventType === "share" ||
+      eventType === "join"
+    ) {
       payload.action = cleanText(rawEvent.action) || null;
+      payload.source = rawSource;
     }
 
     const timestamp = Number(rawEvent.timestamp) || Date.now();
