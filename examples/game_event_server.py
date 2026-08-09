@@ -18,12 +18,12 @@ MAX_BODY_BYTES = int(os.environ.get("GAME_EVENT_MAX_BODY", str(2 * 1024 * 1024))
 MAX_QUEUE_SIZE = int(os.environ.get("GAME_EVENT_QUEUE_SIZE", "5000"))
 MAX_REMEMBERED_EVENT_IDS = int(os.environ.get("GAME_EVENT_ID_CACHE", "10000"))
 
-SERVER_VERSION = "1.4"
+SERVER_VERSION = "1.5"
 SERVER_INSTANCE_ID = uuid.uuid4().hex[:12]
 SERVER_SESSION_TOKEN = os.environ.get("GAME_EVENT_INSTANCE_TOKEN", "").strip()
 SERVER_PID = os.getpid()
 
-SUPPORTED_EVENT_TYPES = {"join", "comment", "follow", "like", "gift"}
+SUPPORTED_EVENT_TYPES = {"join", "comment", "follow", "share", "like", "gift"}
 EVENT_QUEUE: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=MAX_QUEUE_SIZE)
 
 _event_ids: set[str] = set()
@@ -144,10 +144,22 @@ def on_follow(event: dict[str, Any]) -> None:
     print(f"[FOLLOW] {user.get('displayName')}", flush=True)
 
 
+def on_share(event: dict[str, Any]) -> None:
+    user = event.get("user") or {}
+    print(f"[SHARE] {user.get('displayName')}", flush=True)
+
+
 def on_like(event: dict[str, Any]) -> None:
+    user = event.get("user") or {}
     payload = event.get("payload") or {}
     count = max(1, int(payload.get("count") or 1))
-    print(f"[LIKE] x{count} | source={payload.get('source')}", flush=True)
+    source = payload.get("source")
+
+    if source == "user-activity":
+        print(f"[LIKE USER] {user.get('displayName')} x{count}", flush=True)
+        return
+
+    print(f"[LIKE HEART] x{count} | source={source}", flush=True)
 
 
 def on_gift(event: dict[str, Any]) -> None:
@@ -166,6 +178,7 @@ def handle_tiktok_event(event: dict[str, Any]) -> None:
         "join": on_join,
         "comment": on_comment,
         "follow": on_follow,
+        "share": on_share,
         "like": on_like,
         "gift": on_gift,
     }
