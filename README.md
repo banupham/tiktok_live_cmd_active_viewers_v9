@@ -14,19 +14,63 @@ Bộ trung gian lấy sự kiện từ giao diện TikTok LIVE, chuẩn hóa th�
 join
 comment
 follow
+share
 like
 gift
 ```
 
 Middleware không phát `leave`. Ứng dụng nhận tự quản lý timeout hoặc trạng thái rời phòng.
 
-LIKE được lấy từ hiệu ứng tim DOM:
+## Collector đã được tách riêng
+
+Middleware không còn dùng collector cũ quét chung toàn bộ text để đoán nhiều loại event. Luồng hiện tại:
 
 ```text
-Mỗi tim bắt được → một event LIKE → payload.count = 1
+[data-e2e="chat-message"]
+    → COMMENT
+
+[data-e2e="enter-message"] + "đã tham gia"
+    → JOIN
+
+[data-e2e="social-message"] + "đã follow chủ phòng" / "đã theo dõi"
+    → FOLLOW
+
+[data-e2e="social-message"] + "đã chia sẻ phiên LIVE"
+    → SHARE
+
+activity row thường + "đã thích phiên LIVE"
+    → LIKE có user
+
+activity row thường + "đã gửi <gift> × N"
+    → GIFT
+
+hiệu ứng tim bay, nằm ngoài các structured event row
+    → LIKE anonymous
 ```
 
-LIKE không gắn với người dùng cụ thể.
+COMMENT không được đi qua collector GIFT. Collector tim bay cũng loại trừ toàn bộ row COMMENT/JOIN/FOLLOW/SHARE/LIKE-user/GIFT để icon SVG trong các row này không thể bị tính thành tim LIKE.
+
+## Hai nguồn LIKE
+
+Để giữ tương thích với game cũ, cả hai vẫn dùng:
+
+```text
+eventType = like
+```
+
+Nhưng phân biệt bằng `payload.source`:
+
+```text
+user-activity
+    → TikTok hiển thị "<user> đã thích phiên LIVE"
+    → có user.displayName
+    → anonymous = false
+
+heart-animation
+    → hiệu ứng tim bay
+    → không biết user cụ thể
+    → anonymous = true
+```
 
 ## Kết nối tự động với server game — mở hai CMD
 
@@ -36,18 +80,11 @@ LIKE không gắn với người dùng cụ thể.
 python examples\game_event_server.py
 ```
 
-Bản đúng phải hiện:
+Bản hiện tại phải hiện phiên bản `1.5` và hỗ trợ:
 
 ```text
-TIKTOK GAME EVENT SERVER
-Phiên bản  : 1.3
-Instance   : <mã instance>
-PID        : <PID>
-Nhận event : http://127.0.0.1:9000/tiktok-event
-Health     : http://127.0.0.1:9000/health
+join / comment / follow / share / like / gift
 ```
-
-Giữ nguyên cửa sổ này.
 
 ### CMD thứ hai: mở middleware
 
@@ -61,56 +98,19 @@ Ví dụ:
 start_middleware_to_game.bat ngocky.ne
 ```
 
-File BAT chỉ kiểm tra server đã chạy, xác nhận bằng `GET /health`, sau đó mới mở TikTok LIVE. File BAT **không tự mở CMD mới**.
-
 Luồng:
 
 ```text
 TikTok LIVE
     ↓
-Middleware chuẩn hóa event
-    ↓ tự động POST
-http://127.0.0.1:9000/tiktok-event
+DOM collectors riêng biệt
     ↓
-Queue của server game
+Event normalizer kiểm tra source
     ↓
-Hàm xử lý game tự chạy
+Webhook / SSE / JSONL
 ```
 
-## Dấu hiệu kết nối đúng
-
-Server game:
-
-```text
-[HANDSHAKE] GET /health từ 127.0.0.1
-[KẾT NỐI OK] TIKTOK LIVE EVENT MIDDLEWARE → SERVER GAME
-```
-
-Middleware:
-
-```text
-[HANDSHAKE] Server version : 1.3
-[HANDSHAKE] Server instance: <instanceId>
-[HANDSHAKE] Server PID     : <PID>
-[KET NOI OK] Game server va middleware da thong nhau.
-```
-
-Khi có event, server game in:
-
-```text
-[WEBHOOK NHẬN #1] ... | type=like | eventId=...
-[LIKE] x1 | source=heart-animation
-```
-
-## Cài đặt và chạy middleware thông thường
-
-```cmd
-npm install
-sync_profile.bat
-start_visible.bat ten_tiktok
-```
-
-API mặc định:
+## API mặc định
 
 ```text
 http://127.0.0.1:8787/api/health
@@ -119,41 +119,37 @@ http://127.0.0.1:8787/api/recent?limit=50
 http://127.0.0.1:8787/api/schema
 ```
 
-Kiểm tra:
+`GET /api/schema` trả về event types và source hợp lệ cho từng loại event.
+
+## Kiểm tra
 
 ```cmd
+npm install
 npm run check
 npm run test:smoke
 ```
 
+Smoke test hiện kiểm tra riêng các trường hợp:
+
+- comment chứa chữ `gửi` không thể trở thành gift;
+- join chỉ nhận từ `join-message`;
+- follow/share chỉ nhận từ `social-message`;
+- gift chỉ nhận từ `gift-activity`;
+- LIKE user và LIKE tim bay có source khác nhau;
+- `share` có trong schema middleware.
+
 ## CAPTCHA
 
-Khi TikTok hiện CAPTCHA, middleware tự phát hiện, dừng collector, đưa Chrome ra màn hình, chờ người dùng xác minh rồi tự nạp lại collector. Middleware không tự giải CAPTCHA.
+Khi TikTok hiện CAPTCHA, middleware tự phát hiện, dừng toàn bộ collector, đưa Chrome ra màn hình, chờ người dùng xác minh rồi tự nạp lại collector. Middleware không tự giải CAPTCHA.
 
-## Tài liệu
-
-- [HUONG_DAN_TICH_HOP.md](HUONG_DAN_TICH_HOP.md): cài đặt, schema và API tổng thể.
-- [KET_NOI_PUSH.md](KET_NOI_PUSH.md): webhook nội bộ, server game, handshake, queue, LAN và cách nhận event tự động.
-
-## Cấu trúc chính
+## Cấu trúc collector chính
 
 ```text
-.
-├── a.mjs
-├── start_middleware_to_game.bat
-├── src/
-├── examples/
-│   ├── game_event_server.py
-│   ├── python_webhook_receiver.py
-│   ├── node_webhook_receiver.mjs
-│   ├── node_sse_client.mjs
-│   └── browser_sse_client.html
-├── scripts/
-│   ├── send_webhook_handshake.py
-│   ├── check.mjs
-│   └── smoke_test.mjs
-├── HUONG_DAN_TICH_HOP.md
-└── KET_NOI_PUSH.md
+src/collector/
+├── direct_comment_collector.mjs   # COMMENT
+├── activity_collector.mjs         # JOIN/FOLLOW/SHARE/LIKE user/GIFT
+├── like_activity_collector.mjs    # tim LIKE anonymous
+└── dom_collector.mjs              # legacy, không còn được index.mjs chạy
 ```
 
-Luật game không đặt trong middleware. Game nhận JSON rồi tự ánh xạ `comment`, `gift`, `follow`, `like`, `join` thành hành động riêng.
+Game nhận JSON rồi tự ánh xạ `comment`, `gift`, `follow`, `share`, `like`, `join` thành hành động riêng.
