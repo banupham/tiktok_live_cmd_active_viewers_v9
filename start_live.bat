@@ -11,21 +11,38 @@ if "%~1"=="" (
   exit /b 1
 )
 
+if not defined COLLECTOR_MODE set "COLLECTOR_MODE=direct"
+
+if /i "%COLLECTOR_MODE%"=="direct" goto :DIRECT
+if /i "%COLLECTOR_MODE%"=="dom" goto :DOM
+
+echo COLLECTOR_MODE khong hop le: %COLLECTOR_MODE%
+exit /b 4
+
+:DIRECT
+if not defined PYTHON_BIN set "PYTHON_BIN=python"
+where "%PYTHON_BIN%" >nul 2>&1
+if errorlevel 1 (
+  echo [THIEU PYTHON] Hay chay install.bat hoac dung DOM mode.
+  exit /b 5
+)
+echo [MODE] DIRECT WEBCAST - khong Chrome / khong DOM
+node "%~dp0a.mjs" "%~1"
+set "EXIT_CODE=%ERRORLEVEL%"
+goto :END
+
+:DOM
+if not defined LOCALAPPDATA exit /b 6
 if not defined CHROME_PROFILE set "CHROME_PROFILE=Profile 1"
 if not defined COLLECTOR_USER_DATA_DIR set "COLLECTOR_USER_DATA_DIR=%LOCALAPPDATA%\TikTokLiveCollectorChrome"
 set "COLLECTOR_PROFILE=%COLLECTOR_USER_DATA_DIR%\%CHROME_PROFILE%"
-
 if not exist "%COLLECTOR_PROFILE%" (
-  echo.
-  echo Chua co ban sao Chrome profile cho collector.
-  echo Hay dong Google Chrome va chay:
-  echo   sync_profile.bat
-  echo.
-  echo Duong dan dang kiem tra:
-  echo   %COLLECTOR_PROFILE%
-  echo.
+  echo Chua co Chrome profile collector. Dong Chrome va chay sync_profile.bat.
   exit /b 3
 )
-
+echo [MODE] DOM / CHROME
 node "%~dp0a.mjs" "%~1"
-endlocal
+set "EXIT_CODE=%ERRORLEVEL%"
+
+:END
+endlocal & exit /b %EXIT_CODE%

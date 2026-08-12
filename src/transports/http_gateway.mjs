@@ -25,7 +25,6 @@ export class HttpEventGateway {
     logger = console,
   } = {}) {
     if (!eventBus) throw new Error("Thiếu eventBus");
-
     this.eventBus = eventBus;
     this.host = host;
     this.port = Math.max(1, Number(port) || 8787);
@@ -43,6 +42,18 @@ export class HttpEventGateway {
     return {
       schemaVersion: 1,
       service: "tiktok-live-event-middleware",
+      collectorModes: {
+        direct: {
+          collector: "webcast-direct",
+          transport: "TikTok Webcast HTTP + WebSocket",
+          browserRequired: false,
+        },
+        dom: {
+          collector: "dom",
+          transport: "Chrome + DOM collectors",
+          browserRequired: true,
+        },
+      },
       supportedEventTypes: SUPPORTED_EVENT_TYPES,
       unsupportedEventTypes: ["leave"],
       transport: {
@@ -59,20 +70,21 @@ export class HttpEventGateway {
       },
       eventShape: {
         schemaVersion: "number",
-        eventId: "string",
+        eventId: "string; direct ưu tiên TikTok msg_id khi có",
         eventType: SUPPORTED_EVENT_TYPES,
-        timestamp: "number (Unix milliseconds từ trang TikTok)",
+        timestamp: "number (Unix milliseconds)",
         receivedAt: "number (Unix milliseconds tại middleware)",
         source: {
           platform: "tiktok",
-          collector: "dom",
+          collector: "webcast-direct|dom",
           liveUrl: "string|null",
+          roomId: "string|null; direct mode khi có",
         },
         user: {
-          id: "string",
+          id: "string; direct ưu tiên TikTok numeric user id",
           uniqueId: "string|null",
           displayName: "string",
-          identityType: "uniqueId|nickname|anonymous",
+          identityType: "userId|uniqueId|nickname|anonymous",
         },
         payload: "object phụ thuộc eventType",
         raw: "object tùy cấu hình",
@@ -80,43 +92,57 @@ export class HttpEventGateway {
       payloads: {
         join: {
           action: "string|null",
-          source: "join-message",
+          source: "webcast-direct|join-message",
+          memberCount: "number|null; direct",
+          enterType: "number|string|null; direct",
         },
         comment: {
           text: "string",
           normalizedText: "string",
-          source: "direct-comment-elements",
+          source: "webcast-direct|direct-comment-elements",
         },
         follow: {
           action: "string|null",
-          source: "social-message",
+          source: "webcast-direct|social-message",
+          followCount: "number|null; direct",
+          followType: "number|string|null; direct",
         },
         share: {
           action: "string|null",
-          source: "social-message",
+          source: "webcast-direct|social-message",
+          shareCount: "number|null; direct",
+          shareType: "number|string|null; direct",
         },
         like: {
           count: "number",
+          totalCount: "number|undefined",
           action: "string|null",
-          source: "user-activity|heart-animation",
+          source: "webcast-direct|user-activity|heart-animation",
           anonymous: "boolean",
           suspected: "boolean",
         },
         gift: {
           giftName: "string",
           giftKey: "string",
-          count: "number",
+          count: "number; direct mode là delta của combo",
           totalCount: "number|undefined",
           action: "string|null",
-          source: "gift-activity",
+          source: "webcast-direct|gift-activity",
+          giftId: "number|string|null; direct",
+          comboCount: "number|null; direct",
+          repeatEnd: "boolean|undefined; direct",
+          streaking: "boolean|undefined; direct",
+          diamondCount: "number|null; direct",
         },
       },
       notes: [
-        "Mỗi nhóm DOM được collector riêng xử lý để tránh event chồng chéo.",
-        "LIKE có user dùng payload.source=user-activity; tim bay dùng payload.source=heart-animation.",
+        "Direct Webcast là mode mặc định và không cần Chrome/DOM.",
+        "DOM collector cũ vẫn giữ riêng để fallback/đối chiếu.",
+        "Cả hai mode dùng chung normalizer và schema event downstream.",
+        "LIKE DOM có user dùng user-activity; tim bay dùng heart-animation.",
+        "Direct LIKE lấy user/count trực tiếp từ WebcastLikeMessage.",
+        "Direct GIFT phát delta của repeat_count để tránh cộng lặp combo.",
         "Middleware không phát sự kiện leave.",
-        "Ứng dụng nhận tự quản lý việc người dùng rời hoặc hết thời gian hoạt động.",
-        "Danh sách viewer chính xác không được TikTok DOM cung cấp đầy đủ.",
       ],
     };
   }
@@ -131,15 +157,10 @@ export class HttpEventGateway {
       response.end();
       return;
     }
-
     if (method !== "GET") {
-      sendJson(response, 405, {
-        ok: false,
-        error: "Method not allowed",
-      });
+      sendJson(response, 405, { ok: false, error: "Method not allowed" });
       return;
     }
-
     if (url.pathname === "/" || url.pathname === "/api") {
       sendJson(response, 200, {
         ok: true,
@@ -153,51 +174,36 @@ export class HttpEventGateway {
       });
       return;
     }
-
     if (url.pathname === "/api/health") {
       const stats = this.eventBus.getStats();
       sendJson(response, 200, {
         ok: true,
         service: "tiktok-live-event-middleware",
         schemaVersion: 1,
-        uptimeSeconds: this.startedAt
-          ? Math.floor((Date.now() - this.startedAt) / 1000)
-          : 0,
+        uptimeSeconds: this.startedAt ? Math.floor((Date.now() - this.startedAt) / 1000) : 0,
         sseClients: this.sseClients.size,
         ...stats,
       });
       return;
     }
-
     if (url.pathname === "/api/schema") {
       sendJson(response, 200, this.getSchemaDocument());
       return;
     }
-
     if (url.pathname === "/api/recent") {
       const limit = Math.min(
         500,
         Math.max(1, Math.floor(Number(url.searchParams.get("limit")) || 50))
       );
       const events = this.eventBus.getRecent(limit);
-
-      sendJson(response, 200, {
-        ok: true,
-        count: events.length,
-        events,
-      });
+      sendJson(response, 200, { ok: true, count: events.length, events });
       return;
     }
-
     if (url.pathname === "/api/events") {
       this.openSse(request, response);
       return;
     }
-
-    sendJson(response, 404, {
-      ok: false,
-      error: "Endpoint not found",
-    });
+    sendJson(response, 404, { ok: false, error: "Endpoint not found" });
   }
 
   openSse(request, response) {
@@ -211,21 +217,13 @@ export class HttpEventGateway {
 
     const client = { response };
     this.sseClients.add(client);
-
     response.write("retry: 2000\n");
     response.write("event: connected\n");
-    response.write(
-      `data: ${JSON.stringify({
-        ok: true,
-        service: "tiktok-live-event-middleware",
-        schemaVersion: 1,
-      })}\n\n`
-    );
+    response.write(`data: ${JSON.stringify({ ok: true, service: "tiktok-live-event-middleware", schemaVersion: 1 })}\n\n`);
 
     let cleaned = false;
     let pingTimer = null;
     let unsubscribe = () => {};
-
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
@@ -260,26 +258,18 @@ export class HttpEventGateway {
 
   async start() {
     if (this.server) return this.getBaseUrl();
-
     this.server = http.createServer((request, response) => {
       try {
         this.handleRequest(request, response);
       } catch (error) {
-        this.logger.error?.(
-          `[HTTP API] ${error?.stack || error?.message || error}`
-        );
-
+        this.logger.error?.(`[HTTP API] ${error?.stack || error?.message || error}`);
         if (!response.headersSent) {
-          sendJson(response, 500, {
-            ok: false,
-            error: "Internal server error",
-          });
+          sendJson(response, 500, { ok: false, error: "Internal server error" });
         } else {
           response.destroy();
         }
       }
     });
-
     await new Promise((resolve, reject) => {
       this.server.once("error", reject);
       this.server.listen(this.port, this.host, () => {
@@ -287,7 +277,6 @@ export class HttpEventGateway {
         resolve();
       });
     });
-
     this.startedAt = Date.now();
     return this.getBaseUrl();
   }
@@ -296,16 +285,12 @@ export class HttpEventGateway {
     for (const client of this.sseClients) {
       try {
         client.response.end();
-      } catch {
-        // Bỏ qua client đã đóng.
-      }
+      } catch {}
     }
     this.sseClients.clear();
-
     if (!this.server) return;
     const server = this.server;
     this.server = null;
-
     await new Promise(resolve => server.close(() => resolve()));
   }
 }

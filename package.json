@@ -1,9 +1,9 @@
 {
   "name": "tiktok-live-event-middleware",
-  "version": "10.0.0",
+  "version": "11.0.0",
   "private": true,
   "type": "module",
-  "description": "Middleware chuẩn hóa sự kiện TikTok LIVE và phân phối qua SSE/webhook cho game, ứng dụng.",
+  "description": "Middleware chuẩn hóa sự kiện TikTok LIVE qua Direct Webcast hoặc DOM và phân phối qua SSE/webhook.",
   "scripts": {
     "start": "node a.mjs",
     "check": "node scripts/check.mjs",
