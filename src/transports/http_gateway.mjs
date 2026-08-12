@@ -191,7 +191,10 @@ export class HttpEventGateway {
       return;
     }
     if (url.pathname === "/api/recent") {
-      const limit = Math.min(500, Math.max(1, Math.floor(Number(url.searchParams.get("limit")) || 50));
+      const limit = Math.min(
+        500,
+        Math.max(1, Math.floor(Number(url.searchParams.get("limit")) || 50))
+      );
       const events = this.eventBus.getRecent(limit);
       sendJson(response, 200, { ok: true, count: events.length, events });
       return;
@@ -240,8 +243,11 @@ export class HttpEventGateway {
     });
 
     pingTimer = setInterval(() => {
-      try { response.write(`: ping ${Date.now()}\n\n`); }
-      catch { cleanup(); }
+      try {
+        response.write(`: ping ${Date.now()}\n\n`);
+      } catch {
+        cleanup();
+      }
     }, 15_000);
     pingTimer.unref?.();
 
@@ -257,8 +263,11 @@ export class HttpEventGateway {
         this.handleRequest(request, response);
       } catch (error) {
         this.logger.error?.(`[HTTP API] ${error?.stack || error?.message || error}`);
-        if (!response.headersSent) sendJson(response, 500, { ok: false, error: "Internal server error" });
-        else response.destroy();
+        if (!response.headersSent) {
+          sendJson(response, 500, { ok: false, error: "Internal server error" });
+        } else {
+          response.destroy();
+        }
       }
     });
     await new Promise((resolve, reject) => {
@@ -274,7 +283,9 @@ export class HttpEventGateway {
 
   async stop() {
     for (const client of this.sseClients) {
-      try { client.response.end(); } catch {}
+      try {
+        client.response.end();
+      } catch {}
     }
     this.sseClients.clear();
     if (!this.server) return;
