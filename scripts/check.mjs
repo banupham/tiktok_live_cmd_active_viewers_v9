@@ -10,6 +10,7 @@ const files = [
   "src/collector/activity_collector.mjs",
   "src/collector/dom_collector.mjs",
   "src/collector/direct_comment_collector.mjs",
+  "src/collector/direct_webcast_process.mjs",
   "src/collector/like_activity_collector.mjs",
   "src/core/event_bus.mjs",
   "src/core/event_normalizer.mjs",
@@ -21,14 +22,8 @@ const files = [
 ];
 
 let failed = false;
-
 for (const relativePath of files) {
-  const result = spawnSync(
-    process.execPath,
-    ["--check", path.join(root, relativePath)],
-    { stdio: "inherit" }
-  );
-
+  const result = spawnSync(process.execPath, ["--check", path.join(root, relativePath)], { stdio: "inherit" });
   if (result.status !== 0) failed = true;
 }
 
@@ -50,12 +45,8 @@ const importCheck = spawnSync(
       "})",
     ].join("\n"),
   ],
-  {
-    cwd: root,
-    stdio: "inherit",
-  }
+  { cwd: root, stdio: "inherit" }
 );
-
 if (importCheck.status !== 0) failed = true;
 
 if (failed) process.exit(1);

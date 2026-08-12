@@ -1,12 +1,42 @@
 # TikTok LIVE Event Middleware
 
-Bộ trung gian lấy sự kiện từ giao diện TikTok LIVE, chuẩn hóa thành JSON và phân phối cho game hoặc ứng dụng khác qua:
+Middleware nhận sự kiện TikTok LIVE, chuẩn hóa thành JSON rồi phân phối cho game/ứng dụng qua **Webhook**, **SSE** và **JSONL**.
 
-- **Webhook**: middleware tự `POST` từng event tới server game.
-- **SSE**: ứng dụng mở `GET /api/events` một lần và nhận luồng liên tục.
-- **JSONL**: lưu lịch sử vào `data/events.jsonl`.
+## Hai chế độ collector
 
-Ứng dụng không cần polling `/api/recent`.
+### 1. `direct` — mặc định, khuyên dùng
+
+Không mở Chrome, không Puppeteer/Playwright browser, không DOM, không MutationObserver.
+
+```text
+TikTok LIVE
+    ↓
+HTTP bootstrap + Webcast WebSocket
+    ↓
+TikTokLive protobuf events
+    ↓
+Python direct_webcast_collector.py
+    ↓ JSON lines nội bộ
+Node middleware
+    ↓
+Normalizer → Webhook / SSE / JSONL
+```
+
+Các event direct hiện nối vào cùng schema middleware:
+
+```text
+WebcastChatMessage   → comment
+WebcastMemberMessage → join
+WebcastLikeMessage   → like
+WebcastSocialMessage → follow / share
+WebcastGiftMessage   → gift
+```
+
+Direct mode dùng thư viện Python `TikTokLive` không chính thức. TikTok có thể thay đổi Webcast protocol theo thời gian.
+
+### 2. `dom` — lựa chọn dự phòng/so sánh
+
+Giữ nguyên collector Chrome + DOM đã có trước đây. DOM mode vẫn giữ xử lý CAPTCHA thủ công: middleware chỉ phát hiện, đưa cửa sổ Chrome ra màn hình và chờ người dùng tự xác minh; không tự giải CAPTCHA.
 
 ## Event hỗ trợ
 
@@ -19,98 +49,126 @@ like
 gift
 ```
 
-Middleware không phát `leave`. Ứng dụng nhận tự quản lý timeout hoặc trạng thái rời phòng.
+Middleware chưa phát `leave`.
 
-## Collector đã được tách riêng
-
-Middleware không còn dùng collector cũ quét chung toàn bộ text để đoán nhiều loại event. Luồng hiện tại:
-
-```text
-[data-e2e="chat-message"]
-    → COMMENT
-
-[data-e2e="enter-message"] + "đã tham gia"
-    → JOIN
-
-[data-e2e="social-message"] + "đã follow chủ phòng" / "đã theo dõi"
-    → FOLLOW
-
-[data-e2e="social-message"] + "đã chia sẻ phiên LIVE"
-    → SHARE
-
-activity row thường + "đã thích phiên LIVE"
-    → LIKE có user
-
-activity row thường + "đã gửi <gift> × N"
-    → GIFT
-
-hiệu ứng tim bay, nằm ngoài các structured event row
-    → LIKE anonymous
-```
-
-COMMENT không được đi qua collector GIFT. Collector tim bay cũng loại trừ toàn bộ row COMMENT/JOIN/FOLLOW/SHARE/LIKE-user/GIFT để icon SVG trong các row này không thể bị tính thành tim LIKE.
-
-## Hai nguồn LIKE
-
-Để giữ tương thích với game cũ, cả hai vẫn dùng:
-
-```text
-eventType = like
-```
-
-Nhưng phân biệt bằng `payload.source`:
-
-```text
-user-activity
-    → TikTok hiển thị "<user> đã thích phiên LIVE"
-    → có user.displayName
-    → anonymous = false
-
-heart-animation
-    → hiệu ứng tim bay
-    → không biết user cụ thể
-    → anonymous = true
-```
-
-## Kết nối tự động với server game — mở hai CMD
-
-### CMD thứ nhất: mở server game
+## Cài đặt
 
 ```cmd
-python examples\game_event_server.py
+install.bat
 ```
 
-Bản hiện tại phải hiện phiên bản `1.5` và hỗ trợ:
+Lệnh này cài npm dependencies và `TikTokLive` cho Python direct collector. Direct mode cần `python` có trong PATH.
 
-```text
-join / comment / follow / share / like / gift
-```
-
-### CMD thứ hai: mở middleware
+## Chạy direct — mặc định
 
 ```cmd
-start_middleware_to_game.bat ten_tiktok
+start_live.bat ten_tiktok
 ```
 
 Ví dụ:
 
 ```cmd
-start_middleware_to_game.bat ngocky.ne
+start_live.bat nhuquynh230794
 ```
 
-Luồng:
+Sau khi kết nối, middleware chạy liên tục tới khi LIVE kết thúc hoặc bạn nhấn `Ctrl+C`.
+
+Direct mode có retry khởi động giới hạn:
 
 ```text
-TikTok LIVE
-    ↓
-DOM collectors riêng biệt
-    ↓
-Event normalizer kiểm tra source
-    ↓
-Webhook / SSE / JSONL
+DIRECT_CONNECT_ATTEMPTS=3
+DIRECT_RETRY_WAIT=4
 ```
 
-## API mặc định
+HTTP `403/429` không bị retry liên tục.
+
+## Chạy DOM riêng
+
+```cmd
+start_visible.bat ten_tiktok
+start_hidden.bat ten_tiktok
+```
+
+Hai file trên luôn ép `COLLECTOR_MODE=dom`, nên collector DOM cũ vẫn là một lựa chọn độc lập. DOM mode vẫn cần Chrome profile collector và `sync_profile.bat` như trước.
+
+## Kết nối server game
+
+CMD 1:
+
+```cmd
+python examples\game_event_server.py
+```
+
+CMD 2 — direct mặc định:
+
+```cmd
+start_middleware_to_game.bat ten_tiktok
+```
+
+Muốn dùng DOM:
+
+```cmd
+start_middleware_to_game_dom.bat ten_tiktok
+```
+
+Webhook mặc định:
+
+```text
+http://127.0.0.1:9000/tiktok-event
+```
+
+Cả hai collector cùng đi qua `TikTokEventNormalizer`, nên phía game không cần đổi cách nhận event.
+
+Direct event có:
+
+```text
+source.collector = webcast-direct
+payload.source   = webcast-direct
+```
+
+DOM event vẫn có:
+
+```text
+source.collector = dom
+```
+
+## LIKE direct
+
+Direct `LikeEvent` có user cụ thể và số lượng:
+
+```text
+payload.count
+payload.totalCount
+```
+
+DOM mode vẫn giữ hai nguồn LIKE cũ `user-activity` và `heart-animation`.
+
+## GIFT direct và combo
+
+Webcast có thể gửi nhiều cập nhật cho cùng một streak. Direct collector theo dõi `repeat_count` và chỉ phát **phần tăng thêm** vào `payload.count`, tránh combo `1 → 2 → 3` bị game cộng thành `6`.
+
+Metadata direct gift giữ thêm:
+
+```text
+payload.totalCount
+payload.comboCount
+payload.repeatEnd
+payload.streaking
+payload.giftId
+payload.diamondCount
+```
+
+## Lỗi protobuf `HashtagNamespace`
+
+Trong test thực tế đã gặp lỗi schema upstream ở `WebcastLinkLayerMessage`:
+
+```text
+'bytes' object has no attribute 'HashtagNamespace'
+```
+
+Direct collector chỉ đưa đúng fingerprint này vào `parse_error_ignorelist`. Không bật bỏ qua toàn bộ payload lỗi, nên lỗi parser mới ở các event quan trọng vẫn được nhìn thấy.
+
+## API middleware
 
 ```text
 http://127.0.0.1:8787/api/health
@@ -119,37 +177,32 @@ http://127.0.0.1:8787/api/recent?limit=50
 http://127.0.0.1:8787/api/schema
 ```
 
-`GET /api/schema` trả về event types và source hợp lệ cho từng loại event.
+## Cấu hình
+
+Sao chép `config.example.cmd` rồi chỉnh:
+
+```cmd
+set "COLLECTOR_MODE=direct"
+set "PYTHON_BIN=python"
+set "DIRECT_CONNECT_ATTEMPTS=3"
+set "DIRECT_RETRY_WAIT=4"
+set "DIRECT_DEBUG=0"
+```
+
+Đổi sang DOM:
+
+```cmd
+set "COLLECTOR_MODE=dom"
+set "SHOW_BROWSER=1"
+```
 
 ## Kiểm tra
 
 ```cmd
-npm install
 npm run check
 npm run test:smoke
 ```
 
-Smoke test hiện kiểm tra riêng các trường hợp:
-
-- comment chứa chữ `gửi` không thể trở thành gift;
-- join chỉ nhận từ `join-message`;
-- follow/share chỉ nhận từ `social-message`;
-- gift chỉ nhận từ `gift-activity`;
-- LIKE user và LIKE tim bay có source khác nhau;
-- `share` có trong schema middleware.
-
-## CAPTCHA
-
-Khi TikTok hiện CAPTCHA, middleware tự phát hiện, dừng toàn bộ collector, đưa Chrome ra màn hình, chờ người dùng xác minh rồi tự nạp lại collector. Middleware không tự giải CAPTCHA.
-
-## Cấu trúc collector chính
-
-```text
-src/collector/
-├── direct_comment_collector.mjs   # COMMENT
-├── activity_collector.mjs         # JOIN/FOLLOW/SHARE/LIKE user/GIFT
-├── like_activity_collector.mjs    # tim LIKE anonymous
-└── dom_collector.mjs              # legacy, không còn được index.mjs chạy
-```
-
-Game nhận JSON rồi tự ánh xạ `comment`, `gift`, `follow`, `share`, `like`, `join` thành hành động riêng.
+Direct collector Python: `scripts/direct_webcast_collector.py`.
+Node sidecar adapter: `src/collector/direct_webcast_process.mjs`.
+Collector DOM cũ vẫn nằm nguyên trong `src/collector/` và chỉ chạy khi chọn `COLLECTOR_MODE=dom`.
