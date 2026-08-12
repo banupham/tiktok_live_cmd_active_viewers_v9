@@ -6,6 +6,13 @@ set "COLLECTOR_MODE=direct"
 set "PYTHON_BIN=python"
 set "DIRECT_CONNECT_ATTEMPTS=3"
 set "DIRECT_RETRY_WAIT=4"
+
+rem Khi da tung CONNECTED ma WebSocket bi ngat giua LIVE:
+rem sidecar duoc khoi dong lai toi da 5 lan, cho 4s / 8s / 12s... toi da 20s.
+rem 403/429 va user offline khong bi reconnect lap lien tuc.
+set "DIRECT_RUNTIME_RESTARTS=5"
+set "DIRECT_RUNTIME_RESTART_WAIT=4"
+set "DIRECT_RUNTIME_RESTART_MAX_WAIT=20"
 set "DIRECT_DEBUG=0"
 
 set "API_HOST=127.0.0.1"
