@@ -5,13 +5,17 @@ cd /d "%~dp0"
 
 if "%~1"=="" (
   echo Cach dung:
-  echo   start_live.bat username
-  echo   start_live.bat @username
-  echo   start_live.bat https://www.tiktok.com/@username/live
+  echo   start_live.bat username [api_port]
+  echo   start_live.bat @username [api_port]
+  echo   start_live.bat https://www.tiktok.com/@username/live [api_port]
   exit /b 1
 )
 
+if not "%~2"=="" set "API_PORT=%~2"
+if not defined API_PORT set "API_PORT=8787"
 if not defined COLLECTOR_MODE set "COLLECTOR_MODE=direct"
+
+echo [API PORT] %API_PORT%
 
 if /i "%COLLECTOR_MODE%"=="direct" goto :DIRECT
 if /i "%COLLECTOR_MODE%"=="dom" goto :DOM
