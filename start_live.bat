@@ -13,9 +13,11 @@ if "%~1"=="" (
 
 if not "%~2"=="" set "API_PORT=%~2"
 if not defined API_PORT set "API_PORT=8787"
+if not defined API_HOST set "API_HOST=0.0.0.0"
 if not defined COLLECTOR_MODE set "COLLECTOR_MODE=direct"
 
-echo [API PORT] %API_PORT%
+echo [API] %API_HOST%:%API_PORT%
+if "%API_HOST%"=="0.0.0.0" echo [LAN] Dang lang nghe tren tat ca interface. May khac dung IP LAN cua may nay:%API_PORT%
 
 if /i "%COLLECTOR_MODE%"=="direct" goto :DIRECT
 if /i "%COLLECTOR_MODE%"=="dom" goto :DOM
