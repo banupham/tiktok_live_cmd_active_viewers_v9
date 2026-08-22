@@ -12,7 +12,7 @@
     "example:sse": "node examples/node_sse_client.mjs",
     "example:webhook": "node examples/node_webhook_receiver.mjs"
   },
-  "dependencies": {
+  "optionalDependencies": {
     "playwright": "^1.55.0"
   }
 }

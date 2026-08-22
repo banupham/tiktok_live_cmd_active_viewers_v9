@@ -2,6 +2,93 @@
 
 Middleware nhận sự kiện TikTok LIVE, chuẩn hóa thành JSON rồi phân phối cho game/ứng dụng qua **Webhook**, **SSE** và **JSONL**.
 
+## Chạy nhanh
+
+### Windows — cách đơn giản nhất
+
+Direct mode là mặc định, không cần Chrome/DOM.
+
+```cmd
+install.bat
+run.bat ten_tiktok
+```
+
+Ví dụ:
+
+```cmd
+run.bat nhuquynh230794
+```
+
+Có thể truyền port API:
+
+```cmd
+run.bat nhuquynh230794 8788
+```
+
+Các lựa chọn khác:
+
+```cmd
+run.bat direct ten_tiktok
+run.bat dom ten_tiktok
+run.bat dom-hidden ten_tiktok
+run.bat game ten_tiktok
+```
+
+> **Windows / DOM:** chỉ khi thật sự cần collector DOM/Chrome mới chạy `install.bat dom`. Sau đó đóng Chrome và chạy `sync_profile.bat` một lần để tạo profile collector.
+
+Các file cũ như `start_live.bat`, `start_visible.bat`, `start_hidden.bat`, `start_middleware_to_game.bat` vẫn được giữ để tương thích.
+
+---
+
+### Linux — direct mode
+
+Cần Node.js, npm và Python 3.
+
+```sh
+npm install --omit=optional
+python3 -m pip install -r requirements-direct.txt
+PYTHON_BIN=python3 sh run.sh ten_tiktok
+```
+
+Nếu máy có lệnh `python` trỏ tới Python 3:
+
+```sh
+npm install --omit=optional
+python -m pip install -r requirements-direct.txt
+sh run.sh ten_tiktok
+```
+
+> **Linux:** nên dùng `direct`. DOM mode hiện chưa được repo hỗ trợ trên Linux vì phần DOM đang dùng `LOCALAPPDATA` và Chrome profile theo Windows.
+
+---
+
+### Termux — direct mode
+
+Cài gói cần thiết:
+
+```sh
+pkg update
+pkg install nodejs python git
+```
+
+Sau khi clone repo:
+
+```sh
+npm install --omit=optional
+python -m pip install -r requirements-direct.txt
+sh run.sh ten_tiktok
+```
+
+Ví dụ:
+
+```sh
+sh run.sh nhuquynh230794
+```
+
+> **Termux:** dùng `direct` mode. Không dùng các file `.bat`, `sync_profile.bat` hoặc DOM/Chrome profile của Windows.
+
+---
+
 ## Hai chế độ collector
 
 ### 1. `direct` — mặc định, khuyên dùng
@@ -34,9 +121,23 @@ WebcastGiftMessage   → gift
 
 Direct mode dùng thư viện Python `TikTokLive` không chính thức. TikTok có thể thay đổi Webcast protocol theo thời gian.
 
-### 2. `dom` — lựa chọn dự phòng/so sánh
+### 2. `dom` — dự phòng, hiện dành cho Windows
 
-Giữ nguyên collector Chrome + DOM đã có trước đây. DOM mode vẫn giữ xử lý CAPTCHA thủ công: middleware chỉ phát hiện, đưa cửa sổ Chrome ra màn hình và chờ người dùng tự xác minh; không tự giải CAPTCHA.
+Collector DOM dùng Chrome + Playwright và Chrome profile riêng. DOM mode vẫn giữ xử lý CAPTCHA thủ công: middleware chỉ phát hiện, đưa cửa sổ Chrome ra màn hình và chờ người dùng tự xác minh; không tự giải CAPTCHA.
+
+Cài phần DOM:
+
+```cmd
+install.bat dom
+sync_profile.bat
+run.bat dom ten_tiktok
+```
+
+Ẩn cửa sổ Chrome:
+
+```cmd
+run.bat dom-hidden ten_tiktok
+```
 
 ## Event hỗ trợ
 
@@ -51,47 +152,9 @@ gift
 
 Middleware chưa phát `leave`.
 
-## Cài đặt
-
-```cmd
-install.bat
-```
-
-Lệnh này cài npm dependencies và `TikTokLive` cho Python direct collector. Direct mode cần `python` có trong PATH.
-
-## Chạy direct — mặc định
-
-```cmd
-start_live.bat ten_tiktok
-```
-
-Ví dụ:
-
-```cmd
-start_live.bat nhuquynh230794
-```
-
-Sau khi kết nối, middleware chạy liên tục tới khi LIVE kết thúc hoặc bạn nhấn `Ctrl+C`.
-
-Direct mode có retry khởi động giới hạn:
-
-```text
-DIRECT_CONNECT_ATTEMPTS=3
-DIRECT_RETRY_WAIT=4
-```
-
-HTTP `403/429` không bị retry liên tục.
-
-## Chạy DOM riêng
-
-```cmd
-start_visible.bat ten_tiktok
-start_hidden.bat ten_tiktok
-```
-
-Hai file trên luôn ép `COLLECTOR_MODE=dom`, nên collector DOM cũ vẫn là một lựa chọn độc lập. DOM mode vẫn cần Chrome profile collector và `sync_profile.bat` như trước.
-
 ## Kết nối server game
+
+### Windows
 
 CMD 1:
 
@@ -99,16 +162,31 @@ CMD 1:
 python examples\game_event_server.py
 ```
 
-CMD 2 — direct mặc định:
+CMD 2:
 
 ```cmd
-start_middleware_to_game.bat ten_tiktok
+run.bat game ten_tiktok
 ```
 
-Muốn dùng DOM:
+### Linux / Termux
 
-```cmd
-start_middleware_to_game_dom.bat ten_tiktok
+Terminal 1:
+
+```sh
+python3 examples/game_event_server.py
+```
+
+Terminal 2:
+
+```sh
+PYTHON_BIN=python3 sh run.sh game ten_tiktok
+```
+
+Trên Termux thường chỉ cần:
+
+```sh
+python examples/game_event_server.py
+sh run.sh game ten_tiktok
 ```
 
 Webhook mặc định:
@@ -126,10 +204,44 @@ source.collector = webcast-direct
 payload.source   = webcast-direct
 ```
 
-DOM event vẫn có:
+DOM event có:
 
 ```text
 source.collector = dom
+```
+
+## API middleware
+
+```text
+http://127.0.0.1:8787/api/health
+http://127.0.0.1:8787/api/events
+http://127.0.0.1:8787/api/recent?limit=50
+http://127.0.0.1:8787/api/schema
+```
+
+## Cấu hình nhanh
+
+Direct mode dùng biến môi trường chung trên mọi hệ điều hành:
+
+```text
+COLLECTOR_MODE=direct
+PYTHON_BIN=python
+DIRECT_CONNECT_ATTEMPTS=3
+DIRECT_RETRY_WAIT=4
+DIRECT_RUNTIME_RESTARTS=5
+DIRECT_RUNTIME_RESTART_WAIT=4
+DIRECT_RUNTIME_RESTART_MAX_WAIT=20
+DIRECT_DEBUG=0
+API_HOST=127.0.0.1
+API_PORT=8787
+```
+
+Windows có thể tham khảo `config.example.cmd`.
+
+Linux / Termux đặt biến ngay trước lệnh chạy, ví dụ:
+
+```sh
+API_PORT=8788 PYTHON_BIN=python3 sh run.sh ten_tiktok
 ```
 
 ## LIKE direct
@@ -168,41 +280,13 @@ Trong test thực tế đã gặp lỗi schema upstream ở `WebcastLinkLayerMes
 
 Direct collector chỉ đưa đúng fingerprint này vào `parse_error_ignorelist`. Không bật bỏ qua toàn bộ payload lỗi, nên lỗi parser mới ở các event quan trọng vẫn được nhìn thấy.
 
-## API middleware
+## Kiểm tra code
 
-```text
-http://127.0.0.1:8787/api/health
-http://127.0.0.1:8787/api/events
-http://127.0.0.1:8787/api/recent?limit=50
-http://127.0.0.1:8787/api/schema
-```
-
-## Cấu hình
-
-Sao chép `config.example.cmd` rồi chỉnh:
-
-```cmd
-set "COLLECTOR_MODE=direct"
-set "PYTHON_BIN=python"
-set "DIRECT_CONNECT_ATTEMPTS=3"
-set "DIRECT_RETRY_WAIT=4"
-set "DIRECT_DEBUG=0"
-```
-
-Đổi sang DOM:
-
-```cmd
-set "COLLECTOR_MODE=dom"
-set "SHOW_BROWSER=1"
-```
-
-## Kiểm tra
-
-```cmd
+```sh
 npm run check
 npm run test:smoke
 ```
 
 Direct collector Python: `scripts/direct_webcast_collector.py`.
 Node sidecar adapter: `src/collector/direct_webcast_process.mjs`.
-Collector DOM cũ vẫn nằm nguyên trong `src/collector/` và chỉ chạy khi chọn `COLLECTOR_MODE=dom`.
+Collector DOM nằm trong `src/collector/` và chỉ chạy khi chọn `COLLECTOR_MODE=dom`.

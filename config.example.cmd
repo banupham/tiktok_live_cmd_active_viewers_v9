@@ -15,7 +15,9 @@ set "DIRECT_RUNTIME_RESTART_WAIT=4"
 set "DIRECT_RUNTIME_RESTART_MAX_WAIT=20"
 set "DIRECT_DEBUG=0"
 
-set "API_HOST=127.0.0.1"
+rem 0.0.0.0 = cho phep may khac trong LAN truy cap API.
+rem Doi thanh 127.0.0.1 neu chi muon dung tren may nay.
+set "API_HOST=0.0.0.0"
 set "API_PORT=8787"
 set "INCLUDE_RAW=1"
 set "MAX_RECENT_EVENTS=500"

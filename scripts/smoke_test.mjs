@@ -4,7 +4,7 @@ import { SUPPORTED_EVENT_TYPES, TikTokEventNormalizer } from "../src/core/event_
 import { HttpEventGateway } from "../src/transports/http_gateway.mjs";
 
 const normalizer = new TikTokEventNormalizer({ liveUrl: "https://www.tiktok.com/@example/live" });
-assert.deepEqual(SUPPORTED_EVENT_TYPES, ["join", "comment", "follow", "share", "like", "gift"]);
+assert.deepEqual(SUPPORTED_EVENT_TYPES, ["join", "comment", "follow", "share", "like", "gift", "avatar"]);
 
 // DOM compatibility tests.
 assert.equal(normalizer.normalize({ type: "comment", sender: "Dương", comment: "gửi Hoa hồng × 1", raw: "Dương gửi Hoa hồng × 1" }), null);
@@ -67,22 +67,72 @@ assert.equal(directGift.payload.count, 2);
 assert.equal(directGift.payload.totalCount, 3);
 assert.equal(directGift.payload.giftId, 5655);
 
+const directAvatar = normalizer.normalize({
+  type: "avatar",
+  source: "webcast-direct",
+  roomId: "r1",
+  timestamp: 1786545325315,
+  userId: "14",
+  uniqueId: "u14",
+  sender: "U14",
+  avatarUrl: "https://p16-sign-va.tiktokcdn.com/avatar/path/user14.webp?x-expires=1",
+  avatarPath: "/tmp/tiktok-live-event-avatars/user14.webp",
+  mimeType: "image/webp",
+  bytes: 1234,
+  changed: false,
+});
+assert.equal(directAvatar.eventType, "avatar");
+assert.equal(directAvatar.payload.cache, "temp");
+assert.equal(directAvatar.payload.avatarPath, "/tmp/tiktok-live-event-avatars/user14.webp");
+assert.equal(directAvatar.payload.bytes, 1234);
+
+// Signed/query changes of the same CDN path must not emit another avatar event.
+const duplicateAvatar = normalizer.normalize({
+  type: "avatar",
+  source: "webcast-direct",
+  userId: "14",
+  uniqueId: "u14",
+  sender: "U14",
+  avatarUrl: "https://p16-sign-va.tiktokcdn.com/avatar/path/user14.webp?x-expires=999",
+  avatarPath: "/tmp/tiktok-live-event-avatars/user14.webp",
+});
+assert.equal(duplicateAvatar, null);
+
+const changedAvatar = normalizer.normalize({
+  type: "avatar",
+  source: "webcast-direct",
+  userId: "14",
+  uniqueId: "u14",
+  sender: "U14",
+  avatarUrl: "https://p16-sign-va.tiktokcdn.com/avatar/path/user14-v2.webp?x-expires=999",
+  avatarPath: "/tmp/tiktok-live-event-avatars/user14-v2.webp",
+  previousAvatarUrl: directAvatar.payload.avatarUrl,
+  changed: true,
+});
+assert.equal(changedAvatar.payload.changed, true);
+
 const eventBus = new EventBus({ maxRecent: 20 });
 const gateway = new HttpEventGateway({ eventBus, host: "127.0.0.1", port: 18787 });
 await gateway.start();
-for (const event of [comment, join, follow, share, gift, userLike, anonymousLike, directComment, directJoin, directLike, directFollow, directShare, directGift]) {
+for (const event of [comment, join, follow, share, gift, userLike, anonymousLike, directComment, directJoin, directLike, directFollow, directShare, directGift, directAvatar, changedAvatar]) {
   eventBus.publish(event);
 }
 
+const cachedAvatar = eventBus.getAvatar("@u14");
+assert.equal(cachedAvatar.avatarUrl, changedAvatar.payload.avatarUrl);
+assert.equal(eventBus.getAvatars().length, 1);
+
 const health = await fetch("http://127.0.0.1:18787/api/health").then(response => response.json());
 assert.equal(health.ok, true);
-assert.equal(health.eventCount, 13);
+assert.equal(health.eventCount, 15);
+assert.equal(health.avatarCount, 1);
 
 const schema = await fetch("http://127.0.0.1:18787/api/schema").then(response => response.json());
 assert.equal(schema.supportedEventTypes.includes("share"), true);
+assert.equal(schema.supportedEventTypes.includes("avatar"), true);
 assert.equal(schema.eventShape.source.collector, "webcast-direct|dom");
 assert.equal(schema.collectorModes.direct.browserRequired, false);
 assert.deepEqual(schema.unsupportedEventTypes, ["leave"]);
 
 await gateway.stop();
-console.log("Smoke test passed: DOM compatibility + Direct Webcast normalization.");
+console.log("Smoke test passed: DOM compatibility + Direct Webcast + avatar cache.");

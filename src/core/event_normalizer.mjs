@@ -7,6 +7,7 @@ export const SUPPORTED_EVENT_TYPES = Object.freeze([
   "share",
   "like",
   "gift",
+  "avatar",
 ]);
 
 const SUPPORTED_EVENT_SET = new Set(SUPPORTED_EVENT_TYPES);
@@ -55,10 +56,29 @@ function normalizeTimestamp(value) {
   return n < 10_000_000_000 ? Math.floor(n * 1000) : Math.floor(n);
 }
 
+function normalizeHttpUrl(value) {
+  const text = cleanText(value);
+  if (!/^https?:\/\//i.test(text)) return null;
+  return text;
+}
+
+function avatarFingerprint(value) {
+  const url = normalizeHttpUrl(value);
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return `${parsed.pathname}` || url.split("?", 1)[0];
+  } catch {
+    return url.split("?", 1)[0];
+  }
+}
+
 export class TikTokEventNormalizer {
-  constructor({ liveUrl = null, includeRaw = true } = {}) {
+  constructor({ liveUrl = null, includeRaw = true, maxAvatarSeen = 10000 } = {}) {
     this.liveUrl = liveUrl;
     this.includeRaw = Boolean(includeRaw);
+    this.maxAvatarSeen = Math.max(100, Number(maxAvatarSeen) || 10000);
+    this.avatarSeen = new Map();
   }
 
   resolveUser(rawEvent) {
@@ -92,6 +112,23 @@ export class TikTokEventNormalizer {
     }
   }
 
+  acceptAvatar(user, avatarUrl) {
+    if (!user || user.identityType === "anonymous") return false;
+    const fingerprint = avatarFingerprint(avatarUrl);
+    if (!fingerprint) return false;
+    const key = String(user.id || user.uniqueId || "").trim();
+    if (!key) return false;
+    if (this.avatarSeen.get(key) === fingerprint) return false;
+    this.avatarSeen.delete(key);
+    this.avatarSeen.set(key, fingerprint);
+    while (this.avatarSeen.size > this.maxAvatarSeen) {
+      const oldest = this.avatarSeen.keys().next().value;
+      if (oldest === undefined) break;
+      this.avatarSeen.delete(oldest);
+    }
+    return true;
+  }
+
   normalize(rawEvent) {
     const eventType = cleanText(rawEvent?.type).toLowerCase();
     if (!SUPPORTED_EVENT_SET.has(eventType)) return null;
@@ -102,6 +139,20 @@ export class TikTokEventNormalizer {
     const payload = {};
     const rawSource = cleanText(rawEvent?.source) || null;
     const direct = rawSource === DIRECT_SOURCE;
+
+    if (eventType === "avatar") {
+      const avatarUrl = normalizeHttpUrl(rawEvent.avatarUrl);
+      const avatarPath = cleanText(rawEvent.avatarPath) || null;
+      if (!direct || !avatarUrl || !avatarPath || !this.acceptAvatar(user, avatarUrl)) return null;
+      payload.avatarUrl = avatarUrl;
+      payload.avatarPath = avatarPath;
+      payload.mimeType = cleanText(rawEvent.mimeType) || null;
+      payload.bytes = Number.isFinite(Number(rawEvent.bytes)) ? Math.max(0, Math.floor(Number(rawEvent.bytes))) : null;
+      payload.cache = "temp";
+      payload.changed = Boolean(rawEvent.changed);
+      payload.previousAvatarUrl = normalizeHttpUrl(rawEvent.previousAvatarUrl);
+      payload.source = rawSource;
+    }
 
     if (eventType === "comment") {
       const text = cleanText(rawEvent.comment);
