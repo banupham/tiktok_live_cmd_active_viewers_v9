@@ -52,6 +52,10 @@ echo.
 echo Cach ngan nhat:
 echo   run.bat username
 echo.
+echo LAN API:
+echo   Mac dinh bind 0.0.0.0:8787 de may khac trong LAN truy cap.
+echo   Neu Windows Firewall chan, chay: allow-lan.bat [api_port]
+echo.
 echo Tuy chon:
 echo   run.bat direct username       ^(mac dinh, khong Chrome^)
 echo   run.bat dom username          ^(DOM, hien Chrome^)
