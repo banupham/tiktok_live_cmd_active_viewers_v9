@@ -16,6 +16,8 @@ Tùy chọn:
   ./run.sh game username
 
 Ghi chú:
+  - API mặc định bind 0.0.0.0 để máy khác trong LAN truy cập được.
+  - Muốn chỉ local: API_HOST=127.0.0.1 ./run.sh username
   - Linux/Termux: ưu tiên direct mode, không cần Chrome/DOM.
   - DOM mode hiện chưa hỗ trợ ở script này vì code DOM của repo đang dùng
     LOCALAPPDATA + Chrome profile theo Windows.
@@ -30,6 +32,7 @@ run_direct() {
   if [ "$#" -gt 0 ]; then
     export API_PORT=$1
   fi
+  export API_HOST="${API_HOST:-0.0.0.0}"
   export COLLECTOR_MODE=direct
   exec node a.mjs "$username"
 }
@@ -47,6 +50,7 @@ case "$action" in
   game)
     [ "$#" -gt 0 ] || { usage; exit 1; }
     username=$1
+    export API_HOST="${API_HOST:-0.0.0.0}"
     export COLLECTOR_MODE=direct
     export GAME_EVENT_HOST="${GAME_EVENT_HOST:-127.0.0.1}"
     export GAME_EVENT_PORT="${GAME_EVENT_PORT:-9000}"
